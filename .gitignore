@@ -4,3 +4,8 @@ __pycache__/
 # Bank statements contain personal data - never commit them.
 sample_statements/*
 !sample_statements/.gitkeep
+
+
+# Secrets (API keys)
+.env
+

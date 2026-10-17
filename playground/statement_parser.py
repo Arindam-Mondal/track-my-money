@@ -1,25 +1,42 @@
 """Generic bank statement parser (SBI, Axis, ICICI, HDFC, ...) built on pdfplumber.
 
 Instead of hard-coding one bank's layout, it finds the transaction table by its
-header row and maps columns by name ("Txn Date", "Narration", "Withdrawal Amt.",
-"Deposit", "Closing Balance", ...). Columns it doesn't recognise are kept as
-per-transaction metadata; "Key : Value" text above the table and summary rows
-(opening/closing balance, totals) become statement metadata.
+header row and asks Jev (TypeSafe's model, see header_classifier.py) what each column
+holds, from the header names plus masked sample values. When a header's names aren't
+stored as text (SBI), Jev reads images of the header cells instead. If Jev is
+unavailable, keyword rules map the columns by name ("Txn Date", "Withdrawal Amt.", ...).
+Other columns are kept as per-transaction metadata; "Key : Value" text above the table
+and summary rows (opening/closing balance, totals) become statement metadata.
+
+Locked PDFs prompt for their password. TYPESAFE_API_KEY is read from .env.
 
 Usage:
-    uv run statement_parser.py path/to/statement.pdf [--json]
+    uv run statement_parser.py path/to/statement.pdf [--json] [--rules-only]
+
+    --rules-only (or HEADER_RULES_ONLY=1) skips Jev and uses the keyword rules only.
 """
 
 import bisect
 import json
+import os
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from getpass import getpass
 from pathlib import Path
+from typing import Literal
 
 import pdfplumber
+from dotenv import load_dotenv
+from pdfminer.pdfdocument import PDFPasswordIncorrect
+from pdfplumber.utils.exceptions import PdfminerException
+from typesafe_sdk import TypeSafeError
+
+from header_classifier import Label, Role, header_png, jev_classify
+
 
 DATE_FORMATS = [
     "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%d-%m-%y", "%d/%m/%y",
@@ -49,6 +66,19 @@ PERIOD_RE = re.compile(
 KEY_VALUE_RE = re.compile(
     r"(?P<key>[A-Za-z][\w .&/()'-]*?)\s*:-?\s*(?P<value>.*?)(?=\s+\S+(?:\s\S+){0,3}\s*:|$)"
 )
+
+
+@dataclass
+class HeaderMap:
+    columns: dict[Role, int]          # role -> column index
+    extra: list[tuple[int, str]]      # (column index, header name) kept as metadata
+
+
+# A header classifier: (header cells, sample rows, header-cell images or None) -> one label per column.
+Classifier = Callable[[list[str], list[list[str]], list[bytes] | None], tuple[Label | None, ...]]
+# Renders a table's header cells as PNGs, only when asked (rendering is slow).
+HeaderImages = Callable[[], list[bytes]]
+HeaderSource = Literal["rules", "jev", "jev (image)", "rules (fallback)"]
 
 
 @dataclass
@@ -107,7 +137,7 @@ def parse_amount(text):
 
 # ------------------------------------------------------------- header mapping
 
-def column_role(header):
+def column_role(header: str) -> Role | None:
     h = re.sub(r"[^a-z/ ]", "", header.lower()).strip()
     if "balance" in h:
         return "balance"
@@ -126,26 +156,108 @@ def column_role(header):
     return None
 
 
-def map_header(cells):
-    """Return {role: column index} plus 'extra' columns, or None if not a transaction header."""
-    mapping = {"extra": []}
-    for i, cell in enumerate(cells):
-        role = column_role(cell) if cell else None
-        if role and role not in mapping:
-            mapping[role] = i
-        elif cell:
-            mapping["extra"].append((i, cell))
-    has_amounts = ("debit" in mapping and "credit" in mapping) or "amount" in mapping
-    return mapping if "date" in mapping and has_amounts else None
+def rule_labels(cells: list[str]) -> list[Label | None]:
+    """Keyword-rule label per header cell: its role, "other" if unrecognised, None if empty."""
+    return [(column_role(cell) or "other") if cell else None for cell in cells]
+
+
+def map_header(cells: list[str], labels: list[Label | None]) -> HeaderMap | None:
+    """Which column holds each role, or None if this row isn't a transaction header."""
+    columns: dict[Role, int] = {}
+    extra: list[tuple[int, str]] = []
+    for i, (cell, label) in enumerate(zip(cells, labels)):
+        if label is None:
+            continue
+        if label != "other" and label not in columns:
+            columns[label] = i
+        else:
+            extra.append((i, cell or f"Column {i + 1}"))
+    has_amounts = ("debit" in columns and "credit" in columns) or "amount" in columns
+    return HeaderMap(columns, extra) if "date" in columns and has_amounts else None
+
+
+def looks_like_header(cells: list[str]) -> bool:
+    """Cheap check before asking Jev: 3+ filled cells, none a date or amount, mostly words."""
+    filled = [c for c in cells if c]
+    if len(filled) < 3:
+        return False
+    if any(len(c) > 40 for c in filled):
+        return False
+    if any(parse_date(c) is not None or parse_amount(c) is not None for c in filled):
+        return False
+    return sum(any(ch.isalpha() for ch in c) for c in filled) * 2 >= len(filled)
+
+
+def looks_like_unreadable_header(cells: list[str]) -> bool:
+    """A header whose names aren't stored as text: mostly empty cells and no data in it."""
+    empty = sum(1 for c in cells if not c)
+    if len(cells) < 3 or empty * 2 <= len(cells):
+        return False
+    return not any(parse_date(c) is not None or parse_amount(c) is not None for c in cells if c)
+
+
+def has_dated_row(rows: list[list[str]]) -> bool:
+    """Whether any row has a date in it; a transaction header is followed by dated rows."""
+    return any(parse_date(c) is not None for row in rows for c in row)
+
+
+def ask_jev(
+    classify: Classifier, cells: list[str], samples: list[list[str]], images: list[bytes] | None = None
+) -> HeaderMap | None:
+    """Jev's mapping for this header row, or None (with the reason on stderr) if it's unusable."""
+    try:
+        header = map_header(cells, list(classify(cells, samples, images)))
+    except TypeSafeError as e:
+        print(f"Jev unavailable, using rules: {e}", file=sys.stderr)
+        return None
+    if header is None:
+        print(f"Jev's labels don't form a usable header, using rules: {cells}", file=sys.stderr)
+    return header
+
+
+def detect_header(
+    cells: list[str],
+    samples: list[list[str]],
+    classify: Classifier | None,
+    render_images: HeaderImages | None = None,
+) -> tuple[HeaderMap | None, HeaderSource]:
+    """Map a header row with Jev when possible (from images if its text is unreadable), else the rules.
+
+    Jev is only asked about rows followed by dated rows, so text blocks (addresses, disclaimers,
+    invoices) never reach it.
+    """
+    rules = map_header(cells, rule_labels(cells))
+    if classify is None or not has_dated_row(samples):
+        return rules, "rules"
+    if looks_like_header(cells):
+        header = ask_jev(classify, cells, samples)
+        return (header, "jev") if header else (rules, "rules (fallback)")
+    if rules is None and render_images is not None and looks_like_unreadable_header(cells):
+        header = ask_jev(classify, cells, samples, render_images())
+        return (header, "jev (image)") if header else (rules, "rules (fallback)")
+    return rules, "rules"
 
 
 # ------------------------------------------------------------- row sources
 
+def header_renderer(page, cells) -> HeaderImages | None:
+    """A function that renders each header cell as a PNG, or None if a cell has no box (merged)."""
+    boxes = [cell for cell in cells if cell is not None]
+    if len(boxes) != len(cells):
+        return None
+    return lambda: [header_png(page, box) for box in boxes]
+
+
 def ruled_table_rows(pdf):
-    """Rows from tables drawn with cell borders (most net-banking PDFs)."""
+    """(row, header renderer) pairs from tables drawn with cell borders (most net-banking PDFs).
+
+    Only each table's first row gets a renderer; it may be a header whose names aren't text.
+    """
     for page in pdf.pages:
-        for table in page.extract_tables():
-            yield from table
+        for table in page.find_tables():
+            render = header_renderer(page, table.rows[0].cells)
+            for i, row in enumerate(table.extract()):
+                yield row, render if i == 0 else None
 
 
 def text_lines(page, tolerance=3):
@@ -159,8 +271,21 @@ def text_lines(page, tolerance=3):
     return [sorted(line, key=lambda w: w["x0"]) for line in lines]
 
 
-def text_layout_rows(pdf, min_gap=8):
-    """Rows for borderless tables: column edges come from the header words' positions."""
+def split_line(line, edges):
+    """Place a line's words into columns by their horizontal centre."""
+    row = [""] * (len(edges) + 1)
+    for w in line:
+        col = bisect.bisect(edges, (w["x0"] + w["x1"]) / 2)
+        row[col] = f"{row[col]} {w['text']}".strip()
+    return row
+
+
+def text_layout_rows(pdf, classify: Classifier | None = None, min_gap=8):
+    """(row, None) pairs for borderless tables: column edges come from the header words' positions.
+
+    Jev is only asked about lines where the keyword rules already recognise 2+ columns, so the
+    account details above the table are never sent.
+    """
     edges = None
     for page in pdf.pages:
         lines = text_lines(page)
@@ -173,19 +298,19 @@ def text_layout_rows(pdf, min_gap=8):
                 else:
                     cells.append([w])
             names = [" ".join(w["text"] for w in c) for c in cells]
-            if map_header(names):
-                edges = [(a[-1]["x1"] + b[0]["x0"]) / 2 for a, b in zip(cells, cells[1:])]
+            line_edges = [(a[-1]["x1"] + b[0]["x0"]) / 2 for a, b in zip(cells, cells[1:])]
+            known = sum(label not in (None, "other") for label in rule_labels(names))
+            samples = [split_line(next_line, line_edges) for next_line in lines[i + 1 : i + 4]]
+            header, _ = detect_header(names, samples, classify if known >= 2 else None)
+            if header:
+                edges = line_edges
                 start = i + 1
-                yield names
+                yield names, None
                 break
         if edges is None:
             continue
         for line in lines[start:]:
-            row = [""] * (len(edges) + 1)
-            for w in line:
-                col = bisect.bisect(edges, (w["x0"] + w["x1"]) / 2)
-                row[col] = f"{row[col]} {w['text']}".strip()
-            yield row
+            yield split_line(line, edges), None
 
 
 # ------------------------------------------------------------- statement parsing
@@ -226,25 +351,29 @@ def header_metadata(first_page_text):
     return metadata
 
 
-def build_transactions(rows, metadata):
+def build_transactions(rows, metadata, classify: Classifier | None = None):
     transactions = []
     mapping = ncols = None
+    rows = [([clean(c) for c in row], render) for row, render in rows]
 
-    for row in rows:
-        cells = [clean(c) for c in row]
-        header = map_header(cells)
+    for i, (cells, render) in enumerate(rows):
+        samples = [r for r, _ in rows[i + 1 : i + 4] if len(r) == len(cells)]
+        header, source = detect_header(cells, samples, classify, render)
         if header:
             mapping, ncols = header, len(cells)
+            metadata["Header Mapping"] = source
             continue
         if mapping is None or len(cells) != ncols:
             continue
 
+        columns = mapping.columns
+
         def cell(role):
-            return cells[mapping[role]] if role in mapping else ""
+            return cells[columns[role]] if role in columns else ""
 
         tx_date = parse_date(cell("date"))
         particulars = cell("particulars")
-        amounts = {r: parse_amount(cell(r)) for r in ("debit", "credit", "amount", "balance") if r in mapping}
+        amounts = {r: parse_amount(cell(r)) for r in ("debit", "credit", "amount", "balance") if r in columns}
         amounts = {r: v for r, v in amounts.items() if v is not None}
 
         if tx_date is None:
@@ -254,13 +383,13 @@ def build_transactions(rows, metadata):
                 label = particulars.title()
                 for role, value in amounts.items():
                     metadata[label if len(amounts) == 1 else f"{label} {role.title()}"] = value
-            elif transactions and filled == [mapping.get("particulars")]:
+            elif transactions and filled == [columns.get("particulars")]:
                 # Narration wrapped onto its own line.
                 transactions[-1].particulars += " " + particulars
             continue
 
         balance = amounts.get("balance")
-        if "amount" in mapping:
+        if "amount" in columns:
             amount = amounts.get("amount", Decimal(0))
             direction = cell("drcr").lower()[:2] or None
             if direction not in ("dr", "cr"):
@@ -273,22 +402,36 @@ def build_transactions(rows, metadata):
             debit = abs(amounts.get("debit", Decimal(0)))
             credit = abs(amounts.get("credit", Decimal(0)))
 
-        extra = {name: cells[i] for i, name in mapping["extra"] if cells[i]}
+        extra = {name: cells[i] for i, name in mapping.extra if cells[i]}
         transactions.append(Transaction(tx_date, particulars, debit, credit, balance, extra))
 
     return transactions
 
 
-def parse(pdf_path):
-    with pdfplumber.open(pdf_path) as pdf:
+def open_pdf(pdf_path, password=None):
+    """Open a PDF, asking for its password (without echoing it) if it's locked."""
+    try:
+        return pdfplumber.open(pdf_path, password=password)
+    except PdfminerException as e:
+        if not isinstance(e.args[0], PDFPasswordIncorrect):
+            raise
+        if password is not None:
+            raise ValueError(f"Wrong password for {pdf_path.name}") from None
+        return open_pdf(pdf_path, getpass(f"Password for {pdf_path.name}: "))
+
+
+
+def parse(pdf_path, rules_only=False):
+    classify = None if rules_only else jev_classify
+    with open_pdf(pdf_path) as pdf:
         first_page_text = pdf.pages[0].extract_text() or ""
         if not any(page.extract_text() for page in pdf.pages):
             raise ValueError(f"{pdf_path} has no text layer (scanned?) - run OCR on it first.")
 
         metadata = header_metadata(first_page_text)
-        transactions = build_transactions(ruled_table_rows(pdf), metadata)
+        transactions = build_transactions(ruled_table_rows(pdf), metadata, classify)
         if not transactions:
-            transactions = build_transactions(text_layout_rows(pdf), metadata)
+            transactions = build_transactions(text_layout_rows(pdf, classify), metadata, classify)
 
     return Statement(metadata, transactions)
 
@@ -308,6 +451,8 @@ def balance_mismatches(transactions, opening=None):
 
 
 def check_balances(statement):
+    if not statement.transactions:
+        return "no transactions found - the transaction table wasn't recognised"
     opening = next(
         (parse_amount(str(v)) for k, v in statement.metadata.items()
          if any(label in k.lower() for label in ("opening balance", "brought forward"))),
@@ -359,10 +504,13 @@ def to_json(statement):
 
 
 def main():
+    load_dotenv()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if not args:
         sys.exit(__doc__)
-    statement = parse(Path(args[0]))
+    rules_only = "--rules-only" in sys.argv or os.environ.get("HEADER_RULES_ONLY") == "1"
+    statement = parse(Path(args[0]), rules_only)
+
     if "--json" in sys.argv:
         print(to_json(statement))
     else:
