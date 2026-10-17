@@ -1,5 +1,7 @@
 .venv/
 __pycache__/
+node_modules/
+dist/
 
 # Bank statements contain personal data - never commit them.
 sample_statements/*
