@@ -183,6 +183,20 @@ button:focus-visible {
   margin: 8px 0 0;
 }
 
+.mode {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+.mode.ok {
+  color: var(--ok);
+}
+
+.mode.warn {
+  color: var(--warn);
+}
+
 /* Upload */
 .dropzone {
   border: 2px dashed var(--border);

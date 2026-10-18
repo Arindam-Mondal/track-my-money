@@ -342,7 +342,7 @@ erDiagram
         text bank
         text account_number
         text period
-        text header_mapping "rules · jev · jev (image)"
+        text header_mapping "jev · jev (image) · rules · rules (no Jev key) · rules (fallback)"
         text balance_check
         jsonb metadata
         timestamptz uploaded_at
@@ -421,6 +421,8 @@ track-my-money/
 | Problem | Cause | Solution |
 |---|---|---|
 | "No transaction table was recognised" for an SBI statement | No Jev key. The column names are images. | Enter a Jev API key, then upload the file again. |
+| **Columns by** shows `rules (no Jev key)` | The upload had no Jev key. The UI field was empty and the server has no key. | Enter a Jev API key. Delete the statement, then upload the file again. |
+| **Columns by** shows `rules (fallback)` | Jev was not available, or its answer was not usable. | Make sure that the key is correct. Delete the statement, then upload the file again. |
 | Each request takes approximately 8 seconds | The database address uses `localhost`. | Use `127.0.0.1` in `DATABASE_URL`. |
 | `docker compose up` fails | Docker Desktop is not running. | Start Docker Desktop, then try again. |
 | `Can't reach the server` in the UI | The backend is not running. | Start the backend (step 2). |

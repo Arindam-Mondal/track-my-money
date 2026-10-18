@@ -92,7 +92,7 @@ class NoTextLayer(ValueError):
 
 # Renders a table's header cells as PNGs, only when asked (rendering is slow).
 HeaderImages = Callable[[], list[bytes]]
-HeaderSource = Literal["rules", "jev", "jev (image)", "rules (fallback)"]
+HeaderSource = Literal["rules", "rules (no Jev key)", "jev", "jev (image)", "rules (fallback)"]
 
 
 @dataclass
@@ -241,7 +241,9 @@ def detect_header(
     invoices) never reach it.
     """
     rules = map_header(cells, rule_labels(cells))
-    if classify is None or not has_dated_row(samples):
+    if classify is None:
+        return rules, "rules (no Jev key)"
+    if not has_dated_row(samples):
         return rules, "rules"
     if looks_like_header(cells):
         header = ask_jev(classify, cells, samples)

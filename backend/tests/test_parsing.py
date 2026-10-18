@@ -130,9 +130,9 @@ def test_falls_back_to_rules_when_jev_labels_are_unusable():
     assert source == "rules (fallback)"
 
 
-def test_rules_only_never_calls_jev():
+def test_without_a_key_the_label_says_so():
     _, source = detect_header(HEADER, ROWS, None)
-    assert source == "rules"
+    assert source == "rules (no Jev key)"
 
 
 def test_data_rows_and_text_blocks_never_reach_jev():
