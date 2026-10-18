@@ -21,6 +21,7 @@ dev = [
     "pypdf>=6.21.1",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
+    "scikit-learn>=1.9.1",
 ]
 
 [tool.pytest.ini_options]

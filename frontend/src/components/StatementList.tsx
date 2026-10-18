@@ -7,9 +7,10 @@ type Props = {
   selectedId: number | null
   onSelect: (id: number) => void
   onDelete: (id: number) => void
+  onCategorise: (id: number) => void
 }
 
-export default function StatementList({ statements, selectedId, onSelect, onDelete }: Props) {
+export default function StatementList({ statements, selectedId, onSelect, onDelete, onCategorise }: Props) {
   const [confirming, setConfirming] = useState<number | null>(null)
 
   if (statements.length === 0) {
@@ -32,6 +33,7 @@ export default function StatementList({ statements, selectedId, onSelect, onDele
               <th>Account</th>
               <th>Period</th>
               <th className="num">Transactions</th>
+              <th>Categories</th>
               <th>Columns by</th>
               <th>Balance check</th>
               <th aria-label="Actions" />
@@ -53,6 +55,9 @@ export default function StatementList({ statements, selectedId, onSelect, onDele
                 <td>{maskAccount(statement.account_number)}</td>
                 <td>{statement.period ?? '—'}</td>
                 <td className="num">{statement.transaction_count}</td>
+                <td className="nowrap" onClick={(event) => event.stopPropagation()}>
+                  <CategoryProgress statement={statement} onCategorise={() => onCategorise(statement.id)} />
+                </td>
                 <td>{statement.header_mapping ?? '—'}</td>
                 <td className={statement.balance_check.startsWith('OK') ? 'ok' : 'warn'}>{statement.balance_check}</td>
                 <td className="actions" onClick={(event) => event.stopPropagation()}>
@@ -77,5 +82,28 @@ export default function StatementList({ statements, selectedId, onSelect, onDele
         </table>
       </div>
     </section>
+  )
+}
+
+function CategoryProgress({ statement, onCategorise }: { statement: Statement; onCategorise: () => void }) {
+  const { categorised_count: done, transaction_count: total } = statement
+  if (statement.categorising) {
+    return (
+      <span className="progress" role="status">
+        <progress max={total} value={done} aria-label="Categorising" /> {done}/{total}
+      </span>
+    )
+  }
+  return (
+    <span className="progress">
+      <span className={done === total ? 'ok' : 'warn'}>
+        {done}/{total}
+      </span>
+      {done < total && (
+        <button type="button" onClick={onCategorise}>
+          Categorise
+        </button>
+      )}
+    </span>
   )
 }

@@ -13,6 +13,11 @@
   --bad: #b3261e;
   --debit: #b3261e;
   --credit: #1f7a4d;
+  /* Chart series (dataviz reference palette slots 1-3, validated on this surface) */
+  --series-in: #2a78d6;
+  --series-out: #eb6834;
+  --series-net: #1baf7a;
+  --grid: #e7e9e4;
 
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -38,6 +43,10 @@
     --bad: #f08a80;
     --debit: #f08a80;
     --credit: #63c58f;
+    --series-in: #3987e5;
+    --series-out: #d95926;
+    --series-net: #199e70;
+    --grid: #283029;
   }
 }
 
@@ -345,4 +354,203 @@ td.actions {
 
 td.actions button + button {
   margin-left: 6px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  padding: 8px 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.tabs button[aria-current='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* Categories */
+select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  max-width: 100%;
+}
+
+.category-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 190px;
+}
+
+.tag {
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.tag.bad {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress progress {
+  width: 80px;
+  accent-color: var(--accent);
+}
+
+.progress .ok {
+  color: var(--ok);
+}
+
+.progress .warn {
+  color: var(--warn);
+}
+
+/* Money flow */
+.flow {
+  display: grid;
+  gap: 16px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.filters input[type='month'] {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tile-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tile-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.swatch.in {
+  background: var(--series-in);
+}
+
+.swatch.out {
+  background: var(--series-out);
+}
+
+.swatch.net {
+  background: var(--series-net);
+}
+
+.note {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.9rem;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.with-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chart {
+  margin: 0;
+}
+
+.legend-text,
+.bar-label {
+  color: var(--text);
+  fill: var(--text);
+  font-size: 12px;
+}
+
+.table-view {
+  margin-top: 8px;
+  font-size: 0.9rem;
+}
+
+.table-view summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.recharts-wrapper :focus {
+  outline: none;
 }

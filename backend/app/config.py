@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     cors_origins: str = ""  # comma-separated, for a frontend hosted on another origin
     max_upload_mb: int = 20
 
+    # Laya: the local, open-source Jev-compatible model that categorises transactions (docker-compose.yml).
+    laya_base_url: str = "http://127.0.0.1:8100"
+    laya_api_key: str = "local-laya-key"
+    laya_model: str = ""  # empty: the server's default router
+    categorise_workers: int = 4
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

@@ -1,5 +1,7 @@
-# Local Postgres for track-my-money. Start with: docker compose up -d
-# Port 5433 on the host, because a local Postgres may already be using 5432.
+# Local services for track-my-money. Start with: docker compose up -d
+#   db   - Postgres on 127.0.0.1:5433 (a local Postgres may already be using 5432)
+#   laya - our fine-tuned Laya model, Jev-compatible API on 127.0.0.1:8100 (the backend uses 8000).
+#          Needs the checkpoint in models/laya-finance first: see backend/training/README.md.
 services:
   db:
     image: postgres:17
@@ -18,5 +20,34 @@ services:
       timeout: 3s
       retries: 10
 
+  # Categorises transactions locally. Built from Laya's own Dockerfile at a pinned release; serves
+  # our fine-tuned checkpoint (models/laya-finance). To compare with the base model, start it with
+  # LAYA_MODELS=english,laya-finance (the base weights then download on first start).
+  laya:
+    profiles: ["laya"] # opt-in: docker compose --profile laya up -d
+    build:
+      context: https://github.com/NandhaKishorM/laya.git#v0.4.11
+    image: track-my-money-laya:0.4.11
+    command: ["laya-serve"]
+    environment:
+      LAYA_API_KEY: ${LAYA_API_KEY:-local-laya-key}
+      LAYA_EXTRA_MODELS: '{"laya-finance": "/models/laya-finance"}'
+      LAYA_MODELS: ${LAYA_MODELS:-laya-finance}
+      LAYA_PRELOAD: "1" # load the checkpoints at start, not on the first request
+      LAYA_JEV_STRICT: "1" # answer in the exact Jev wire format the TypeSafe SDK expects
+      LAYA_THREADS: "4"
+    ports:
+      - "127.0.0.1:8100:8000"
+    volumes:
+      - ./models:/models:ro
+      - laya-cache:/home/laya/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
+
 volumes:
   pgdata:
+  laya-cache:

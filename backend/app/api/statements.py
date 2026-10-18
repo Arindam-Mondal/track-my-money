@@ -1,26 +1,39 @@
-"""Upload, list, read and delete statements.
+"""Upload, list, read, categorise and delete statements; correct a transaction's category.
 
 One upload request per PDF. A locked PDF is answered with 422 `password_required`; the client
 sends the same file again with its password. PDFs, passwords and Jev keys are never stored.
+After an upload, Laya categorises the new transactions in the background.
 """
 
 import hashlib
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Response, UploadFile
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.categorising import jobs
+from app.categorising.categories import CATEGORIES, Direction, direction_of, is_valid
 from app.config import settings
 from app.db import get_session
 from app.models import Statement, Transaction
 from app.parsing import statement_parser
 from app.parsing.header_classifier import jev_classifier
-from app.schemas import Health, StatementOut, TransactionOut, UploadError, UploadErrorCode
+from app.schemas import (
+    Categories,
+    Category,
+    CategoryUpdate,
+    Health,
+    StatementOut,
+    TransactionOut,
+    UploadError,
+    UploadErrorCode,
+)
 
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -41,7 +54,7 @@ def jsonable(metadata: dict[str, Any]) -> dict[str, Any]:
     return {key: str(value) if isinstance(value, Decimal) else value for key, value in metadata.items()}
 
 
-def to_out(statement: Statement, transaction_count: int) -> StatementOut:
+def to_out(statement: Statement, transaction_count: int, categorised_count: int = 0) -> StatementOut:
     return StatementOut(
         id=statement.id,
         filename=statement.filename,
@@ -52,6 +65,8 @@ def to_out(statement: Statement, transaction_count: int) -> StatementOut:
         balance_check=statement.balance_check,
         uploaded_at=statement.uploaded_at,
         transaction_count=transaction_count,
+        categorised_count=categorised_count,
+        categorising=jobs.is_running(statement.id),
     )
 
 
@@ -64,6 +79,7 @@ def health(session: SessionDep) -> Health:
 @router.post("/statements", status_code=201, responses=UPLOAD_ERRORS)
 def upload_statement(
     session: SessionDep,
+    background: BackgroundTasks,
     file: Annotated[UploadFile, File(description="A bank statement PDF")],
     password: Annotated[str | None, Form(description="Password, if the PDF is locked")] = None,
     typesafe_key: Annotated[str | None, Header(alias="X-TypeSafe-Key", description="The user's Jev key")] = None,
@@ -124,18 +140,20 @@ def upload_statement(
     except IntegrityError:  # the same file finished uploading in parallel
         session.rollback()
         raise upload_error(409, "duplicate", "This statement was already imported.") from None
+    if jobs.claim(statement.id):
+        background.add_task(jobs.run, statement.id)  # runs after the response is sent
     return to_out(statement, len(parsed.transactions))
 
 
 @router.get("/statements")
 def list_statements(session: SessionDep) -> list[StatementOut]:
     rows = session.execute(
-        select(Statement, func.count(Transaction.id))
+        select(Statement, func.count(Transaction.id), func.count(Transaction.category))
         .outerjoin(Transaction)
         .group_by(Statement.id)
         .order_by(Statement.uploaded_at.desc(), Statement.id.desc())
     ).all()
-    return [to_out(statement, count) for statement, count in rows]
+    return [to_out(statement, count, categorised) for statement, count, categorised in rows]
 
 
 @router.get("/statements/{statement_id}/transactions")
@@ -156,3 +174,42 @@ def delete_statement(statement_id: int, session: SessionDep) -> Response:
     session.delete(statement)
     session.commit()
     return Response(status_code=204)
+
+
+@router.post("/statements/{statement_id}/categorise", status_code=202)
+def categorise_statement(
+    statement_id: int, session: SessionDep, background: BackgroundTasks, redo: bool = False
+) -> dict[str, bool]:
+    """Start categorising with Laya: uncategorised transactions, or with `redo` all of Laya's too."""
+    if session.get(Statement, statement_id) is None:
+        raise HTTPException(404, "Statement not found")
+    if not jobs.claim(statement_id):
+        raise HTTPException(409, "This statement is already being categorised")
+    background.add_task(jobs.run, statement_id, redo)
+    return {"started": True}
+
+
+@router.get("/categories")
+def list_categories() -> Categories:
+    def entries(direction: Direction) -> list[Category]:
+        return [Category(name=name, description=text) for name, text in CATEGORIES[direction].items()]
+
+    return Categories(out=entries("out"), in_=entries("in"))
+
+
+@router.patch("/transactions/{transaction_id}")
+def update_transaction(transaction_id: int, update: CategoryUpdate, session: SessionDep) -> TransactionOut:
+    """Set a category by hand; categorising again never overwrites it."""
+    transaction = session.get(Transaction, transaction_id)
+    if transaction is None:
+        raise HTTPException(404, "Transaction not found")
+    direction = direction_of(transaction.debit)
+    if not is_valid(update.category, direction):
+        kind = "money out" if direction == "out" else "money in"
+        raise HTTPException(422, f"{update.category!r} is not a {kind} category")
+    transaction.category = update.category
+    transaction.category_source = "manual"
+    transaction.category_confidence = None
+    transaction.categorised_at = datetime.now(UTC)
+    session.commit()
+    return TransactionOut.model_validate(transaction)

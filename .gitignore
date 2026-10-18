@@ -11,3 +11,8 @@ sample_statements/*
 # Secrets (API keys)
 .env
 
+
+# Fine-tuned model checkpoints (large) and generated training data
+models/*
+!models/.gitkeep
+backend/training/data/

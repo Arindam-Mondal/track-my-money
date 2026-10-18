@@ -13,10 +13,13 @@ export type Statement = {
   balance_check: string
   uploaded_at: string
   transaction_count: number
+  categorised_count: number
+  categorising: boolean
 }
 
 // Amounts arrive as decimal strings ("450.00") so no precision is lost.
 export type Transaction = {
+  id: number
   row_index: number
   date: string
   particulars: string
@@ -24,7 +27,21 @@ export type Transaction = {
   credit: string
   balance: string | null
   extra: Record<string, string>
+  category: string | null
+  category_source: 'laya' | 'manual' | null
+  category_confidence: number | null
 }
+
+export type Direction = 'out' | 'in'
+export type Category = { name: string; description: string }
+export type Categories = Record<Direction, Category[]>
+
+export type MonthlyFlow = { month: string; money_in: string; money_out: string; net: string }
+export type CategoryTotal = { category: string; total: string; count: number }
+export type TrendPoint = { month: string; total: string }
+
+/** Period and filters for the money-flow views; months are "YYYY-MM". */
+export type FlowFilters = { from?: string; to?: string; excludeSelf: boolean }
 
 export type Health = { database: 'ok'; server_jev_key: boolean }
 
@@ -89,4 +106,39 @@ export function listTransactions(statementId: number): Promise<Transaction[]> {
 
 export function deleteStatement(statementId: number): Promise<void> {
   return request(`/api/statements/${statementId}`, { method: 'DELETE' })
+}
+
+export function categoriseStatement(statementId: number, redo = false): Promise<{ started: boolean }> {
+  return request(`/api/statements/${statementId}/categorise?redo=${redo}`, { method: 'POST' })
+}
+
+export function getCategories(): Promise<Categories> {
+  return request('/api/categories')
+}
+
+export function setCategory(transactionId: number, category: string): Promise<Transaction> {
+  return request(`/api/transactions/${transactionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category }),
+  })
+}
+
+function query(params: Record<string, string | boolean | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') search.set(key, String(value))
+  return search.toString()
+}
+
+export function getMonthlyFlow(filters: FlowFilters): Promise<MonthlyFlow[]> {
+  return request(`/api/analytics/monthly?${query({ from: filters.from, to: filters.to, exclude_self: filters.excludeSelf })}`)
+}
+
+export function getCategoryTotals(direction: Direction, filters: FlowFilters): Promise<CategoryTotal[]> {
+  const params = { direction, from: filters.from, to: filters.to, exclude_self: filters.excludeSelf }
+  return request(`/api/analytics/categories?${query(params)}`)
+}
+
+export function getTrend(category: string, filters: FlowFilters): Promise<TrendPoint[]> {
+  return request(`/api/analytics/trend?${query({ category, from: filters.from, to: filters.to })}`)
 }

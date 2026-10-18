@@ -4,7 +4,20 @@ import datetime as dt
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Numeric, Text, func, text
+from sqlalchemy import (
+    REAL,
+    BigInteger,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Numeric,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,6 +51,8 @@ class Transaction(Base):
     __table_args__ = (
         CheckConstraint("debit >= 0", name="debit_nonnegative"),
         CheckConstraint("credit >= 0", name="credit_nonnegative"),
+        CheckConstraint("category_source in ('laya', 'manual')", name="category_source_known"),
+        Index("transactions_category_date_idx", "category", "date"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
@@ -51,5 +66,11 @@ class Transaction(Base):
     credit: Mapped[Decimal] = mapped_column(Money)
     balance: Mapped[Decimal | None] = mapped_column(Money)
     extra: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+
+    # Set by Laya, or by the user ("manual"; never overwritten). Null until categorised.
+    category: Mapped[str | None] = mapped_column(Text)
+    category_source: Mapped[str | None] = mapped_column(Text)
+    category_confidence: Mapped[float | None] = mapped_column(REAL)  # Laya's; over-confident, shown only
+    categorised_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     statement: Mapped[Statement] = relationship(back_populates="transactions")

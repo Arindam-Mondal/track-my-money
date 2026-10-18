@@ -1,12 +1,15 @@
-import type { Statement, Transaction } from '../api'
+import type { Categories, Statement, Transaction } from '../api'
 import { formatAmount, formatDate } from '../format'
+import CategoryCell from './CategoryCell'
 
 type Props = {
   statement: Statement
   transactions: Transaction[] | null // null while loading
+  categories: Categories | null
+  onTransactionChanged: (updated: Transaction) => void
 }
 
-export default function TransactionTable({ statement, transactions }: Props) {
+export default function TransactionTable({ statement, transactions, categories, onTransactionChanged }: Props) {
   const totals = (transactions ?? []).reduce(
     (sum, t) => ({ debit: sum.debit + Number(t.debit), credit: sum.credit + Number(t.credit) }),
     { debit: 0, credit: 0 },
@@ -26,6 +29,7 @@ export default function TransactionTable({ statement, transactions }: Props) {
               <tr>
                 <th>Date</th>
                 <th>Particulars</th>
+                <th>Category</th>
                 <th className="num">Debit</th>
                 <th className="num">Credit</th>
                 <th className="num">Balance</th>
@@ -34,9 +38,12 @@ export default function TransactionTable({ statement, transactions }: Props) {
             </thead>
             <tbody>
               {transactions.map((t) => (
-                <tr key={t.row_index}>
+                <tr key={t.id}>
                   <td className="nowrap">{formatDate(t.date)}</td>
                   <td>{t.particulars}</td>
+                  <td>
+                    <CategoryCell transaction={t} categories={categories} onChanged={onTransactionChanged} />
+                  </td>
                   <td className="num debit">{formatAmount(t.debit)}</td>
                   <td className="num credit">{formatAmount(t.credit)}</td>
                   <td className="num">{formatAmount(t.balance)}</td>
@@ -50,7 +57,7 @@ export default function TransactionTable({ statement, transactions }: Props) {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2}>{transactions.length} transactions</td>
+                <td colSpan={3}>{transactions.length} transactions</td>
                 <td className="num debit">{formatAmount(totals.debit.toFixed(2))}</td>
                 <td className="num credit">{formatAmount(totals.credit.toFixed(2))}</td>
                 <td colSpan={2} />

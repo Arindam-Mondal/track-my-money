@@ -2,6 +2,7 @@
 
 import io
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 import PIL.Image
 import pytest
@@ -10,7 +11,10 @@ from pypdf import PdfReader, PdfWriter
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+from typesafe_sdk import TypeSafeError
 
+from app.categorising import jobs
+from app.categorising.laya import CategoryAnswer, CategoryClassifier, TxInput
 from app.config import settings
 from app.db import Base, get_session
 from app.main import app
@@ -47,13 +51,47 @@ def engine() -> Iterator[Engine]:
     engine.dispose()
 
 
+class FakeLaya:
+    """Stands in for Laya: answers every transaction with `answers[direction]` and records the calls."""
+
+    def __init__(self) -> None:
+        self.answers = {"out": "Other Expense", "in": "Other Income"}
+        self.calls: list[TxInput] = []
+        self.fail = False
+
+    def classify(self, tx: TxInput) -> CategoryAnswer:
+        if self.fail:
+            raise TypeSafeError("Laya is down")
+        self.calls.append(tx)
+        return CategoryAnswer(self.answers[tx.direction], 0.9)
+
+    @contextmanager
+    def factory(self) -> Iterator[CategoryClassifier]:
+        yield self.classify
+
+
 @pytest.fixture
-def client(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """An API client on an emptied test database, with no server-side Jev key."""
+def sessions(engine: Engine) -> sessionmaker[Session]:
+    """Sessions on an emptied test database."""
     with engine.begin() as connection:
         connection.execute(text("truncate statements restart identity cascade"))
+    return sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture
+def laya(sessions: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch) -> FakeLaya:
+    """Background categorising jobs use the test database and a fake Laya."""
+    fake = FakeLaya()
+    monkeypatch.setattr(jobs, "session_factory", sessions)
+    monkeypatch.setattr(jobs, "classifier_factory", fake.factory)
+    monkeypatch.setattr(jobs, "_running", set())
+    return fake
+
+
+@pytest.fixture
+def client(sessions: sessionmaker[Session], laya: FakeLaya, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """An API client on an emptied test database, with no server-side Jev key and a fake Laya."""
     monkeypatch.setattr(settings, "typesafe_api_key", "")
-    sessions = sessionmaker(engine, expire_on_commit=False)
 
     def test_session() -> Iterator[Session]:
         with sessions() as session:

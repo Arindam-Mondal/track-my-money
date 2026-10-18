@@ -29,6 +29,7 @@
 - [Requirements](#-requirements)
 - [Run the app](#-run-the-app)
 - [Use the app](#%EF%B8%8F-use-the-app)
+- [Categories and the local model](#%EF%B8%8F-categories-and-the-local-model)
 - [Run the tests](#-run-the-tests)
 - [Configuration](#%EF%B8%8F-configuration)
 - [API](#-api)
@@ -64,6 +65,8 @@ The app checks each statement after it reads it. Each balance must be equal to t
 | ✅ | Check the running balance of each statement. |
 | 🚫 | Stop duplicates. The app does not import the same file two times. |
 | 🗄️ | Keep statements and transactions in PostgreSQL for analysis. |
+| 🏷️ | Put each transaction into a category (32 categories) with a fine-tuned Laya model that runs on your computer. You can correct any category. |
+| 📊 | See money in vs out per month, spending and income by category, and the trend of one category. |
 
 ---
 
@@ -253,6 +256,29 @@ flowchart TD
 
 > [!NOTE]
 > SBI statements draw the column names as images. To read these statements, you must enter a Jev API key.
+
+---
+
+## 🏷️ Categories and the local model
+
+The app puts each transaction into one of 32 categories (`backend/app/categorising/categories.py`).
+**Laya**, an open-source decision model, makes the choice. It runs in Docker on your computer, so
+narrations do not leave your machine.
+
+Base Laya does not know Indian merchants (it got 7–10 of 18 test narrations right). We fine-tune it
+on **synthetic** narrations on a free Kaggle GPU, then run the result locally.
+
+- 📘 Step-by-step guide: [`backend/training/README.md`](backend/training/README.md)
+- 📝 Why we did it this way: [`docs/case-study-laya-fine-tuning.md`](docs/case-study-laya-fine-tuning.md)
+
+To start the model after you add the checkpoint to `models/laya-finance/`:
+
+```bash
+docker compose --profile laya up -d laya
+```
+
+If Laya is not running, uploads still work. The transactions stay uncategorised until you click
+**Categorise** on the statement.
 
 ---
 
