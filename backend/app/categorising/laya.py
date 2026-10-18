@@ -18,10 +18,11 @@ from app.config import settings
 
 @dataclass(frozen=True)
 class TxInput:
-    narration: str
+    narration: str  # the original text: only ever sent to the local Laya
     direction: Direction
     amount: Decimal
     extra: dict[str, str] = field(default_factory=dict)
+    masked_narration: str | None = None  # app/masking output: the only text a cloud model may see
 
 
 @dataclass(frozen=True)
@@ -45,15 +46,16 @@ def build_state(tx: TxInput) -> Content:
     }
 
 
-def build_question(direction: Direction) -> Choice:
-    """Category names only: Laya fits the question and all options into 192 tokens, so with
-    23 options each one is cut to ~7 tokens and descriptions would only add noise. Training
-    data is built with this same function, so the model is asked exactly what it learned."""
+def build_question(direction: Direction, with_descriptions: bool = False) -> Choice:
+    """For Laya, category names only: it fits the question and all options into 192 tokens, so
+    with 23 options each one is cut to ~7 tokens and descriptions would only add noise. Training
+    data is built with this same function, so Laya is asked exactly what it learned.
+    Jev has no such budget, so it gets the descriptions too."""
     kind = "spending" if direction == "out" else "income"
-    return Choice(
-        instructions=f"Which {kind} category does this bank transaction belong to?",
-        criteria={name: None for name in CATEGORIES[direction]},
+    criteria: dict[str, str | None] = (
+        dict(CATEGORIES[direction]) if with_descriptions else {name: None for name in CATEGORIES[direction]}
     )
+    return Choice(instructions=f"Which {kind} category does this bank transaction belong to?", criteria=criteria)
 
 
 @contextmanager

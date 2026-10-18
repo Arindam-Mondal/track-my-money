@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Categories, Statement, Transaction } from '../api'
 import { formatAmount, formatDate } from '../format'
 import CategoryCell from './CategoryCell'
@@ -9,17 +10,50 @@ type Props = {
   onTransactionChanged: (updated: Transaction) => void
 }
 
+/** Wrap placeholders like [PERSON_7F3A] so they stand out in the masked text. */
+function MaskedText({ text }: { text: string | null }) {
+  if (text === null) return <span className="sub">not masked yet</span>
+  return (
+    <>
+      {text.split(/(\[[^\]]+\])/).map((part, i) =>
+        part.startsWith('[') ? (
+          <mark key={i} className="placeholder">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  )
+}
+
 export default function TransactionTable({ statement, transactions, categories, onTransactionChanged }: Props) {
+  const [showMasked, setShowMasked] = useState(false)
   const totals = (transactions ?? []).reduce(
     (sum, t) => ({ debit: sum.debit + Number(t.debit), credit: sum.credit + Number(t.credit) }),
     { debit: 0, credit: 0 },
   )
+  const columns = showMasked ? 8 : 7
 
   return (
     <section className="card">
-      <h2>
-        {statement.bank ?? 'Statement'} <span className="sub">{statement.period}</span>
+      <h2 className="with-control">
+        <span>
+          {statement.bank ?? 'Statement'} <span className="sub">{statement.period}</span>
+        </span>
+        <label className="toggle">
+          <input type="checkbox" checked={showMasked} onChange={(event) => setShowMasked(event.target.checked)} />
+          Show what Jev sees
+        </label>
       </h2>
+      {showMasked && (
+        <p className="hint">
+          The <strong>Masked</strong> column is the only narration text sent to Jev. People become{' '}
+          <mark className="placeholder">[PERSON_…]</mark>, other names <mark className="placeholder">[NAME_…]</mark>, and
+          numbers, UPI IDs, accounts and places are replaced. The same name always gets the same token.
+        </p>
+      )}
       {transactions === null ? (
         <p className="empty">Loading…</p>
       ) : (
@@ -29,6 +63,7 @@ export default function TransactionTable({ statement, transactions, categories, 
               <tr>
                 <th>Date</th>
                 <th>Particulars</th>
+                {showMasked && <th>Masked (sent to Jev)</th>}
                 <th>Category</th>
                 <th className="num">Debit</th>
                 <th className="num">Credit</th>
@@ -41,6 +76,11 @@ export default function TransactionTable({ statement, transactions, categories, 
                 <tr key={t.id}>
                   <td className="nowrap">{formatDate(t.date)}</td>
                   <td>{t.particulars}</td>
+                  {showMasked && (
+                    <td className="masked">
+                      <MaskedText text={t.particulars_masked} />
+                    </td>
+                  )}
                   <td>
                     <CategoryCell transaction={t} categories={categories} onChanged={onTransactionChanged} />
                   </td>
@@ -57,10 +97,10 @@ export default function TransactionTable({ statement, transactions, categories, 
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={3}>{transactions.length} transactions</td>
+                <td colSpan={showMasked ? 4 : 3}>{transactions.length} transactions</td>
                 <td className="num debit">{formatAmount(totals.debit.toFixed(2))}</td>
                 <td className="num credit">{formatAmount(totals.credit.toFixed(2))}</td>
-                <td colSpan={2} />
+                <td colSpan={columns - (showMasked ? 6 : 5)} />
               </tr>
             </tfoot>
           </table>

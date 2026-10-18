@@ -2,7 +2,8 @@
 
 One upload request per PDF. A locked PDF is answered with 422 `password_required`; the client
 sends the same file again with its password. PDFs, passwords and Jev keys are never stored.
-After an upload, Laya categorises the new transactions in the background.
+Uploads only parse, mask and store. Categorising runs only when the user asks for it
+(POST /statements/{id}/categorise), so masking can be checked first.
 """
 
 import hashlib
@@ -21,6 +22,7 @@ from app.categorising import jobs
 from app.categorising.categories import CATEGORIES, Direction, direction_of, is_valid
 from app.config import settings
 from app.db import get_session
+from app.masking import MASKING_VERSION, mask
 from app.models import Statement, Transaction
 from app.parsing import statement_parser
 from app.parsing.header_classifier import jev_classifier
@@ -79,7 +81,6 @@ def health(session: SessionDep) -> Health:
 @router.post("/statements", status_code=201, responses=UPLOAD_ERRORS)
 def upload_statement(
     session: SessionDep,
-    background: BackgroundTasks,
     file: Annotated[UploadFile, File(description="A bank statement PDF")],
     password: Annotated[str | None, Form(description="Password, if the PDF is locked")] = None,
     typesafe_key: Annotated[str | None, Header(alias="X-TypeSafe-Key", description="The user's Jev key")] = None,
@@ -126,6 +127,8 @@ def upload_statement(
                 row_index=i,
                 date=t.date,
                 particulars=t.particulars,
+                particulars_masked=mask(t.particulars),
+                masking_version=MASKING_VERSION,
                 debit=t.debit,
                 credit=t.credit,
                 balance=t.balance,
@@ -140,8 +143,6 @@ def upload_statement(
     except IntegrityError:  # the same file finished uploading in parallel
         session.rollback()
         raise upload_error(409, "duplicate", "This statement was already imported.") from None
-    if jobs.claim(statement.id):
-        background.add_task(jobs.run, statement.id)  # runs after the response is sent
     return to_out(statement, len(parsed.transactions))
 
 
@@ -178,14 +179,25 @@ def delete_statement(statement_id: int, session: SessionDep) -> Response:
 
 @router.post("/statements/{statement_id}/categorise", status_code=202)
 def categorise_statement(
-    statement_id: int, session: SessionDep, background: BackgroundTasks, redo: bool = False
+    statement_id: int,
+    session: SessionDep,
+    background: BackgroundTasks,
+    redo: bool = False,
+    categoriser: jobs.Categoriser = "laya",
+    typesafe_key: Annotated[str | None, Header(alias="X-TypeSafe-Key", description="The user's Jev key")] = None,
 ) -> dict[str, bool]:
-    """Start categorising with Laya: uncategorised transactions, or with `redo` all of Laya's too."""
+    """Start categorising with Laya (local) or Jev (cloud, masked text only).
+
+    Uncategorised transactions, or with `redo` also earlier Laya/Jev answers; manual ones never.
+    """
     if session.get(Statement, statement_id) is None:
         raise HTTPException(404, "Statement not found")
+    api_key = (typesafe_key or settings.typesafe_api_key).strip() or None
+    if categoriser == "jev" and not api_key:
+        raise HTTPException(422, "Jev needs an API key: enter yours in the Jev API key field")
     if not jobs.claim(statement_id):
         raise HTTPException(409, "This statement is already being categorised")
-    background.add_task(jobs.run, statement_id, redo)
+    background.add_task(jobs.run, statement_id, redo, categoriser, api_key)
     return {"started": True}
 
 

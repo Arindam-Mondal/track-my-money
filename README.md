@@ -437,6 +437,36 @@ track-my-money/
 
 - 🖼️ For column names that are images, Jev gets images of the header cells only. It does not get images of transactions.
 
+### Categorising: Laya (local) or Jev (cloud, masked)
+
+Nothing is categorised automatically. You choose **Laya** or **Jev** in the **Categorise with** switch, then
+click **Categorise with …** on a statement.
+
+- **Laya** runs on your computer. The original narration never leaves it.
+- **Jev** gets only the **masked narration**, the direction (money in or out) and an **amount range**
+  (for example `₹10k–50k`), never the exact amount.
+
+The app masks every narration when you upload it and stores the result in its own column
+(`particulars_masked`). Turn on **Show what Jev sees** in the transaction table to check it before you
+use Jev. The masking (`backend/app/masking/`) keeps what tells the category and replaces the rest:
+
+| Original | Stored and sent to Jev |
+|---|---|
+| `UPI/P2A/412345678901/RAHUL SHARMA/rahul.12@okaxis/rent oct` | `UPI/P2A/[REF]/[PERSON_6C46]/[UPI_ID]@okaxis/rent oct` |
+| `POS 458024 SRI LAKSHMI ENTERPRISES NASHIK` | `POS [REF] SRI [NAME_3264] ENTERPRISES [CITY]` |
+| `NEFT Dr-UTIB0281200-ARJUN IYER-HOUSE RENT JUL` | `NEFT Dr-[IFSC:UTIB]-[PERSON_B05B]-HOUSE RENT JUL` |
+| `UPI/P2M/998877665544/SWIGGY/swiggy@icici/Payment` | `UPI/P2M/[REF]/SWIGGY/swiggy@icici/Payment` |
+
+- Known brands, payment keywords, business words and common English words are kept. Names, UPI IDs,
+  numbers, PAN, Aadhaar, phone numbers, emails, dates and cities are replaced.
+- The same person always gets the same token, so patterns stay visible. A secret key in
+  `backend/.env` (`MASKING_SECRET`, created on first use) makes the tokens impossible to reverse.
+  **Keep this key.** A new key gives every name a new token.
+- After the masking rules change, run `uv run python -m app.masking.backfill` in `backend/` to
+  mask the stored rows again.
+- `uv run python training/check_masking.py` in `backend/` checks the rules on synthetic narrations.
+  The current result is 0 leaks and 0 masked brands in 5,000 narrations.
+
 > [!IMPORTANT]
 > All users share one workspace in this version. Add user accounts and HTTPS before other people use a hosted copy.
 

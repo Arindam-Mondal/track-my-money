@@ -57,6 +57,7 @@ class FakeLaya:
     def __init__(self) -> None:
         self.answers = {"out": "Other Expense", "in": "Other Income"}
         self.calls: list[TxInput] = []
+        self.categorisers: list[tuple[str, str | None]] = []  # (categoriser, api key) per job
         self.fail = False
 
     def classify(self, tx: TxInput) -> CategoryAnswer:
@@ -66,7 +67,8 @@ class FakeLaya:
         return CategoryAnswer(self.answers[tx.direction], 0.9)
 
     @contextmanager
-    def factory(self) -> Iterator[CategoryClassifier]:
+    def factory(self, categoriser: str, api_key: str | None) -> Iterator[CategoryClassifier]:
+        self.categorisers.append((categoriser, api_key))
         yield self.classify
 
 
@@ -92,6 +94,7 @@ def laya(sessions: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch) -> Fa
 def client(sessions: sessionmaker[Session], laya: FakeLaya, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """An API client on an emptied test database, with no server-side Jev key and a fake Laya."""
     monkeypatch.setattr(settings, "typesafe_api_key", "")
+    monkeypatch.setattr(settings, "masking_secret", "test-masking-secret")  # never the real key
 
     def test_session() -> Iterator[Session]:
         with sessions() as session:

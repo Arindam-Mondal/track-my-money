@@ -143,7 +143,8 @@ function UploadStatus({ item }: { item: Item }) {
       return (
         <span className="status ok">
           Imported {item.statement?.transaction_count} transactions
-          {item.statement?.header_mapping && <> · columns by {item.statement.header_mapping}</>}
+          {item.statement?.header_mapping && <> · columns by {item.statement.header_mapping}</>} · not categorised yet:
+          check the masked text, then use Categorise in the list
         </span>
       )
     case 'duplicate':

@@ -5,6 +5,8 @@ Candidates:
   laya-finance   our fine-tuned checkpoint (models/laya-finance)
   tfidf          a tiny baseline: character n-gram TF-IDF + logistic regression, trained in
                  seconds on the same synthetic data. Shows whether fine-tuning a 0.4B model pays off.
+  jev-masked     Jev (cloud) on the MASKED narrations only. Opt-in (add it to --models): it sends
+                 the masked text of your labelled transactions to TypeSafe. Needs TYPESAFE_API_KEY.
 
 Test sets:
   handwritten    18 typical narrations with known categories
@@ -29,7 +31,9 @@ from sqlalchemy import create_engine, select  # noqa: E402
 from typesafe_sdk import TypeSafeError  # noqa: E402
 
 from app.categorising.categories import direction_of  # noqa: E402
+from app.categorising.jev import jev_category_classifier  # noqa: E402
 from app.categorising.laya import TxInput, laya_classifier  # noqa: E402
+from app.masking import mask  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.models import Transaction  # noqa: E402
 
@@ -60,7 +64,8 @@ Case = tuple[TxInput, str]
 
 
 def handwritten() -> list[Case]:
-    return [(TxInput(n, d, Decimal(a)), expected) for n, d, a, expected in HANDWRITTEN]  # type: ignore[arg-type]
+    return [(TxInput(n, d, Decimal(a), masked_narration=mask(n)), expected)  # type: ignore[arg-type]
+            for n, d, a, expected in HANDWRITTEN]
 
 
 def real_labelled() -> list[Case]:
@@ -68,10 +73,12 @@ def real_labelled() -> list[Case]:
     engine = create_engine(settings.database_url)
     with engine.connect() as connection:
         rows = connection.execute(
-            select(Transaction.particulars, Transaction.debit, Transaction.credit, Transaction.extra, Transaction.category)
+            select(Transaction.particulars, Transaction.debit, Transaction.credit, Transaction.extra,
+                   Transaction.particulars_masked, Transaction.category)
             .where(Transaction.category_source == "manual")
         ).all()
-    return [(TxInput(p, direction_of(debit), debit or credit, extra), category) for p, debit, credit, extra, category in rows]
+    return [(TxInput(p, direction_of(debit), debit or credit, extra, masked), category)
+            for p, debit, credit, extra, masked, category in rows]
 
 
 def tfidf_classifier(round_: int):
@@ -128,6 +135,12 @@ def main() -> None:
         for name in names:
             if name == "tfidf":
                 run(name, predictors[name], cases)
+            elif name == "jev-masked":
+                if not settings.typesafe_api_key:
+                    print(f"  {name:<14} skipped: set TYPESAFE_API_KEY (e.g. uv run --env-file ../playground/.env ...)")
+                    continue
+                with jev_category_classifier(settings.typesafe_api_key) as classify:
+                    run(name, lambda tx, c=classify: c(tx).category, cases)
             else:
                 with laya_classifier(model=name) as classify:
                     run(name, lambda tx, c=classify: c(tx).category, cases)

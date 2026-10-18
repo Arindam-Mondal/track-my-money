@@ -3,7 +3,7 @@
 **Project:** track-my-money, a personal-finance app that imports bank statement PDFs.
 **Question:** how do we put each transaction into a category (Food & Dining, House Rent, SIP, …)
 **without sending people's bank data to a cloud AI**?
-**Status:** fine-tuning prepared and verified; results pending the first Kaggle run.
+**Status:** round 1 trained on Kaggle (95.6% on held-out synthetic data); real-data evaluation pending.
 
 ---
 
@@ -91,7 +91,33 @@ evaluation, so we also learn whether a 0.4 B-parameter model is worth it over a 
 
 ## 4. Results
 
-*To be filled in after the first Kaggle run.*
+### Round 1 training (Kaggle, 2×T4, 4 epochs, 3,920 training rows)
+
+`laya-train` scores the 480 held-out synthetic rows before and after training:
+
+| Metric | Before | After |
+|---|---|---|
+| **Accuracy** | 34.2% | **95.6%** |
+| **Expected calibration error** (lower is better) | 0.545 | **0.020** |
+| Loss | 21.93 | 0.21 |
+| Brier, multi-class (lower is better) | 1.165 | 0.071 |
+| Mean confidence | 88.6% | 96.5% |
+
+Two results matter here:
+- **Accuracy rose by 61 points.** That's larger than the gain Laya's authors report on their own
+  benchmark.
+- **Calibration was fixed.** Before training, the model was 89% confident while only 34% right.
+  After training, its confidence matches its accuracy, so the confidence shown in the app means
+  something.
+
+These held-out rows come from the same generator as the training data. They show that the model
+learned the synthetic patterns. Whether it works on real narrations is measured in the next table.
+
+The checkpoint is 1.56 GB.
+
+### Real-data evaluation
+
+*To be filled in after hand-labelling real transactions.*
 
 | Model | 18 handwritten | ~100 real, hand-labelled | Time per transaction |
 |---|---|---|---|
@@ -100,7 +126,34 @@ evaluation, so we also learn whether a 0.4 B-parameter model is worth it over a 
 | TF-IDF baseline | 17 / 18 | — | < 0.01 s |
 | Jev (cloud, reference) | 18 / 18 | — | 0.4 s |
 
-## 5. Lessons
+## 5. The alternative: Jev with our own masking
+
+Laya runs at about 0.7 transactions per second on this laptop (an i7-8565U). So we added Jev as a
+switchable alternative, with one rule: **Jev only ever sees masked text**.
+
+- **Our own masker, built on an allow-list.** It keeps known brands, payment keywords, business
+  words and common English words. Everything else is replaced:
+  - people become `[PERSON_xxxx]` and other names `[NAME_xxxx]`
+  - UPI IDs, references, accounts, PAN, Aadhaar, phone numbers, dates and cities become typed
+    placeholders
+  - names in known person positions (`UPI/P2A/<ref>/<NAME>`) are always masked
+- **Consistent tokens.** A keyed hash (HMAC-SHA256 with a local secret) gives the same person the
+  same token across statements, so patterns survive, but the token can't be reversed.
+- **Stored and visible.** The masked narration is stored in its own column and shown in the UI, so
+  it can be checked before anything is sent.
+- **Measured:**
+  - **0 leaks and 0 masked brands** in 5,000 synthetic narrations
+  - Jev still scored **18/18** on the masked versions of the handwritten test, against 18/18
+    unmasked
+  - a scan of 818 real masked narrations found name words that survive because they're also
+    common English words (Syed, Md, Pant, Mia). We added them to the names list (masking
+    version 3).
+
+**Lesson:** a dictionary-based masker is only as good as its exceptions. Scanning which words were
+kept *only because they're common English words*, on real data, finds the leaks quickly, without
+anyone reading the original narrations.
+
+## 6. Lessons
 
 - **Measure on one fixed test set from day one.** Our 18 narrations made every option directly
   comparable and turned opinions into numbers.

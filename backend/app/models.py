@@ -14,6 +14,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Numeric,
+    SmallInteger,
     Text,
     func,
     text,
@@ -51,7 +52,7 @@ class Transaction(Base):
     __table_args__ = (
         CheckConstraint("debit >= 0", name="debit_nonnegative"),
         CheckConstraint("credit >= 0", name="credit_nonnegative"),
-        CheckConstraint("category_source in ('laya', 'manual')", name="category_source_known"),
+        CheckConstraint("category_source in ('laya', 'jev', 'manual')", name="category_source_known"),
         Index("transactions_category_date_idx", "category", "date"),
     )
 
@@ -62,12 +63,15 @@ class Transaction(Base):
     row_index: Mapped[int]  # position in the statement, to keep the bank's order
     date: Mapped[dt.date] = mapped_column(Date, index=True)
     particulars: Mapped[str] = mapped_column(Text)
+    # The narration with everything identifying replaced (app/masking); the only text sent to Jev.
+    particulars_masked: Mapped[str | None] = mapped_column(Text)
+    masking_version: Mapped[int | None] = mapped_column(SmallInteger)
     debit: Mapped[Decimal] = mapped_column(Money)
     credit: Mapped[Decimal] = mapped_column(Money)
     balance: Mapped[Decimal | None] = mapped_column(Money)
     extra: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
-    # Set by Laya, or by the user ("manual"; never overwritten). Null until categorised.
+    # Set by Laya or Jev, or by the user ("manual"; never overwritten). Null until categorised.
     category: Mapped[str | None] = mapped_column(Text)
     category_source: Mapped[str | None] = mapped_column(Text)
     category_confidence: Mapped[float | None] = mapped_column(REAL)  # Laya's; over-confident, shown only

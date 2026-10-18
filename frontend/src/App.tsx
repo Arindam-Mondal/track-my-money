@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import {
   type Categories,
+  type Categoriser,
   categoriseStatement,
   deleteStatement,
   getCategories,
@@ -11,6 +12,7 @@ import {
   type Transaction,
 } from './api'
 import ApiKeyField from './components/ApiKeyField'
+import CategoriserSwitch from './components/CategoriserSwitch'
 import StatementList from './components/StatementList'
 import TransactionTable from './components/TransactionTable'
 import UploadPanel from './components/UploadPanel'
@@ -19,7 +21,8 @@ import UploadPanel from './components/UploadPanel'
 const MoneyFlow = lazy(() => import('./components/MoneyFlow'))
 
 const KEY_STORAGE = 'track-my-money.jev-key'
-const POLL_MS = 2000 // while Laya categorises in the background
+const CATEGORISER_STORAGE = 'track-my-money.categoriser'
+const POLL_MS = 2000 // while a statement is being categorised in the background
 
 type Tab = 'statements' | 'flow'
 
@@ -41,9 +44,26 @@ function saveKey(key: string) {
   }
 }
 
+function loadCategoriser(): Categoriser {
+  try {
+    return localStorage.getItem(CATEGORISER_STORAGE) === 'jev' ? 'jev' : 'laya'
+  } catch {
+    return 'laya'
+  }
+}
+
+function saveCategoriser(value: Categoriser) {
+  try {
+    localStorage.setItem(CATEGORISER_STORAGE, value)
+  } catch {
+    // not persisted; still used for this visit
+  }
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('statements')
   const [apiKey, setApiKey] = useState(loadKey)
+  const [categoriser, setCategoriser] = useState<Categoriser>(loadCategoriser)
   const [serverHasKey, setServerHasKey] = useState<boolean | null>(null)
   const [categories, setCategories] = useState<Categories | null>(null)
   const [statements, setStatements] = useState<Statement[]>([])
@@ -108,9 +128,9 @@ export default function App() {
     }
   }
 
-  async function categorise(id: number) {
+  async function categorise(id: number, redo: boolean) {
     try {
-      await categoriseStatement(id)
+      await categoriseStatement(id, { categoriser, redo, apiKey })
       await refresh()
     } catch (e) {
       setError((e as Error).message)
@@ -153,14 +173,24 @@ export default function App() {
         <>
           <div className="top">
             <UploadPanel apiKey={apiKey} onImported={refresh} />
-            <ApiKeyField
-              value={apiKey}
-              serverHasKey={serverHasKey}
-              onChange={(key) => {
-                setApiKey(key)
-                saveKey(key)
-              }}
-            />
+            <div className="side">
+              <ApiKeyField
+                value={apiKey}
+                serverHasKey={serverHasKey}
+                onChange={(key) => {
+                  setApiKey(key)
+                  saveKey(key)
+                }}
+              />
+              <CategoriserSwitch
+                value={categoriser}
+                jevAvailable={apiKey !== '' || serverHasKey === true}
+                onChange={(value) => {
+                  setCategoriser(value)
+                  saveCategoriser(value)
+                }}
+              />
+            </div>
           </div>
 
           <StatementList
@@ -169,6 +199,7 @@ export default function App() {
             onSelect={select}
             onDelete={remove}
             onCategorise={categorise}
+            categoriser={categoriser}
           />
           {selected && (
             <TransactionTable

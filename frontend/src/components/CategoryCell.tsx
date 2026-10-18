@@ -42,11 +42,12 @@ export default function CategoryCell({ transaction, categories, onChanged }: Pro
         ))}
       </select>
       {transaction.category_source === 'manual' && <span className="tag">manual</span>}
-      {transaction.category_source === 'laya' && transaction.category_confidence !== null && (
-        <span className="tag" title="Laya's confidence. It runs high, so treat it as a rough guide.">
-          Laya {Math.round(transaction.category_confidence * 100)}%
-        </span>
-      )}
+      {(transaction.category_source === 'laya' || transaction.category_source === 'jev') &&
+        transaction.category_confidence !== null && (
+          <span className="tag" title="The model's confidence in this category">
+            {transaction.category_source === 'laya' ? 'Laya' : 'Jev'} {Math.round(transaction.category_confidence * 100)}%
+          </span>
+        )}
       {error && <span className="tag bad">{error}</span>}
     </div>
   )

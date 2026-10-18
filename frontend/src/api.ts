@@ -23,12 +23,13 @@ export type Transaction = {
   row_index: number
   date: string
   particulars: string
+  particulars_masked: string | null // what Jev would see
   debit: string
   credit: string
   balance: string | null
   extra: Record<string, string>
   category: string | null
-  category_source: 'laya' | 'manual' | null
+  category_source: 'laya' | 'jev' | 'manual' | null
   category_confidence: number | null
 }
 
@@ -108,8 +109,16 @@ export function deleteStatement(statementId: number): Promise<void> {
   return request(`/api/statements/${statementId}`, { method: 'DELETE' })
 }
 
-export function categoriseStatement(statementId: number, redo = false): Promise<{ started: boolean }> {
-  return request(`/api/statements/${statementId}/categorise?redo=${redo}`, { method: 'POST' })
+export type Categoriser = 'laya' | 'jev'
+
+export function categoriseStatement(
+  statementId: number,
+  options: { categoriser: Categoriser; redo?: boolean; apiKey?: string },
+): Promise<{ started: boolean }> {
+  const headers: Record<string, string> = {}
+  if (options.categoriser === 'jev' && options.apiKey) headers['X-TypeSafe-Key'] = options.apiKey
+  const params = `categoriser=${options.categoriser}&redo=${options.redo ?? false}`
+  return request(`/api/statements/${statementId}/categorise?${params}`, { method: 'POST', headers })
 }
 
 export function getCategories(): Promise<Categories> {

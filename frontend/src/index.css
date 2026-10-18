@@ -554,3 +554,91 @@ select {
 .recharts-wrapper :focus {
   outline: none;
 }
+
+/* Masked narration (what Jev sees) */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+h2.with-control {
+  justify-content: space-between;
+}
+
+td.masked {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+mark.placeholder {
+  background: var(--row-selected);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* Categorise-with switch */
+.side {
+  display: grid;
+  gap: 16px;
+}
+
+.categoriser .label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented label {
+  flex: 1;
+  padding: 6px 10px;
+  text-align: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.segmented label + label {
+  border-left: 1px solid var(--border);
+}
+
+.segmented label.on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.segmented label.on .sub {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.progress .muted {
+  color: var(--muted);
+}

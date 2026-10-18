@@ -42,12 +42,13 @@ class TransactionOut(BaseModel):
     row_index: int
     date: dt.date
     particulars: str
+    particulars_masked: str | None  # what Jev would see
     debit: Decimal
     credit: Decimal
     balance: Decimal | None
     extra: dict[str, Any]
     category: str | None
-    category_source: Literal["laya", "manual"] | None
+    category_source: Literal["laya", "jev", "manual"] | None
     category_confidence: float | None
 
 

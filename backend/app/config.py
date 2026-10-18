@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     laya_model: str = ""  # empty: the server's default router
     categorise_workers: int = 4
 
+    # Key for consistent masking tokens ([PERSON_xxxx]); generated into .env on first use.
+    masking_secret: str = ""
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

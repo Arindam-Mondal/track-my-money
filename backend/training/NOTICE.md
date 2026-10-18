@@ -20,5 +20,9 @@ published under the MIT License:
 > DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+The masker (`app/masking`) uses the most common English words from **wordfreq**
+(https://github.com/rspeer/wordfreq): code under the Apache-2.0 license, word-frequency data under
+CC BY-SA 4.0, by Robyn Speer.
+
 The fine-tuned model is trained from **Laya** (`convaiinnovations/laya`, Apache-2.0,
 https://github.com/NandhaKishorM/laya).
