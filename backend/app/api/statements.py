@@ -1,12 +1,13 @@
-"""Upload, list, read, categorise and delete statements; correct a transaction's category.
+"""Upload, list, read, categorise and delete statements.
 
 One upload request per PDF. A locked PDF is answered with 422 `password_required`; the client
 sends the same file again with its password. PDFs, passwords and Jev keys are never stored.
-Uploads only parse, mask and store. Categorising runs only when the user asks for it
-(POST /statements/{id}/categorise), so masking can be checked first.
+Uploads parse, mask, store, and apply the user's rules (app/rules). Categorising with a model runs
+only when the user asks for it (POST /statements/{id}/categorise), so masking can be checked first.
 """
 
 import hashlib
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any
@@ -15,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from pdfminer.pdfparser import PDFSyntaxError
 from pdfplumber.utils.exceptions import PdfminerException
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.categorising import jobs
@@ -26,6 +27,7 @@ from app.masking import MASKING_VERSION, mask
 from app.models import Statement, Transaction
 from app.parsing import statement_parser
 from app.parsing.header_classifier import jev_classifier
+from app.rules.engine import apply_rules
 from app.schemas import (
     Categories,
     Category,
@@ -37,6 +39,7 @@ from app.schemas import (
     UploadErrorCode,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -143,7 +146,16 @@ def upload_statement(
     except IntegrityError:  # the same file finished uploading in parallel
         session.rollback()
         raise upload_error(409, "duplicate", "This statement was already imported.") from None
-    return to_out(statement, len(parsed.transactions))
+
+    # The user's rules come first; anything they don't match waits for Laya or Jev.
+    try:
+        categorised = apply_rules(session, statement.id).set
+        session.commit()
+    except DBAPIError:  # e.g. a rule hit the time limit: the statement is imported regardless
+        session.rollback()
+        logger.exception("Applying rules to statement %d failed", statement.id)
+        categorised = 0
+    return to_out(statement, len(parsed.transactions), categorised)
 
 
 @router.get("/statements")
@@ -188,7 +200,8 @@ def categorise_statement(
 ) -> dict[str, bool]:
     """Start categorising with Laya (local) or Jev (cloud, masked text only).
 
-    Uncategorised transactions, or with `redo` also earlier Laya/Jev answers; manual ones never.
+    The rules run first; then uncategorised transactions, or with `redo` also earlier Laya/Jev
+    answers, go to the model. Manual and rule categories never do.
     """
     if session.get(Statement, statement_id) is None:
         raise HTTPException(404, "Statement not found")
@@ -207,21 +220,3 @@ def list_categories() -> Categories:
         return [Category(name=name, description=text) for name, text in CATEGORIES[direction].items()]
 
     return Categories(out=entries("out"), in_=entries("in"))
-
-
-@router.patch("/transactions/{transaction_id}")
-def update_transaction(transaction_id: int, update: CategoryUpdate, session: SessionDep) -> TransactionOut:
-    """Set a category by hand; categorising again never overwrites it."""
-    transaction = session.get(Transaction, transaction_id)
-    if transaction is None:
-        raise HTTPException(404, "Transaction not found")
-    direction = direction_of(transaction.debit)
-    if not is_valid(update.category, direction):
-        kind = "money out" if direction == "out" else "money in"
-        raise HTTPException(422, f"{update.category!r} is not a {kind} category")
-    transaction.category = update.category
-    transaction.category_source = "manual"
-    transaction.category_confidence = None
-    transaction.categorised_at = datetime.now(UTC)
-    session.commit()
-    return TransactionOut.model_validate(transaction)

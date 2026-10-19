@@ -30,6 +30,7 @@
 - [Run the app](#-run-the-app)
 - [Use the app](#%EF%B8%8F-use-the-app)
 - [Categories and the local model](#%EF%B8%8F-categories-and-the-local-model)
+- [Rules](#-rules)
 - [Run the tests](#-run-the-tests)
 - [Configuration](#%EF%B8%8F-configuration)
 - [API](#-api)
@@ -65,8 +66,12 @@ The app checks each statement after it reads it. Each balance must be equal to t
 | ✅ | Check the running balance of each statement. |
 | 🚫 | Stop duplicates. The app does not import the same file two times. |
 | 🗄️ | Keep statements and transactions in PostgreSQL for analysis. |
-| 🏷️ | Put each transaction into a category (32 categories) with a fine-tuned Laya model that runs on your computer. You can correct any category. |
+| 🏷️ | Put each transaction into a category (33 categories) with a fine-tuned Laya model that runs on your computer, or with Jev on masked text. You can correct any category. |
+| 🎭 | Mask each narration on upload (names, UPI IDs, numbers). Only the masked text can go to Jev. |
+| 🔎 | Search all transactions by any column (text, amount, date or month). Select the results and set one category on all of them. |
+| ↔️ | Mark money that only passes through your account as **Pass-through**. Money flow does not count it. |
 | 📊 | See money in vs out per month, spending and income by category, and the trend of one category. |
+| 📏 | Make your own rules (for example "Particulars matches regex … AND Debit = 26000 → Pass-through"). Rules run before the model. |
 
 ---
 
@@ -79,18 +84,22 @@ flowchart LR
     user(["👤 User"])
 
     subgraph browser["🌐 Browser"]
-        ui["⚛️ React UI<br/>upload · password · statements · transactions"]
+        ui["⚛️ React UI<br/>statements · transactions · money flow · rules panel"]
         key[("🔑 localStorage<br/>Jev API key")]
     end
 
     subgraph backend["🐍 Backend · FastAPI"]
-        api["🚪 API<br/>/api/statements"]
+        api["🚪 API<br/>statements · transactions · analytics · rules"]
         parser["📄 Statement parser<br/>pdfplumber"]
         classifier["🧭 Header classifier<br/>mask · images · cache"]
+        masker["🎭 Masking<br/>narrations"]
+        rules["📏 Rules engine<br/>SQL conditions"]
+        jobs["🏷️ Categorising jobs<br/>rules first, then a model"]
         orm["🧱 SQLAlchemy + Alembic"]
     end
 
     jev["🤖 Jev<br/>api.typesafe.ai"]
+    laya["🧠 Laya<br/>Docker, local"]
     db[("🐘 PostgreSQL 17<br/>Docker")]
 
     user --> ui
@@ -100,6 +109,12 @@ flowchart LR
     parser --> classifier
     classifier -- "headers + masked samples<br/>or header images" --> jev
     jev -- "column roles" --> classifier
+    api --> masker
+    api --> rules
+    api --> jobs
+    jobs --> rules
+    jobs -- "original narration" --> laya
+    jobs -- "masked narration only" --> jev
     api --> orm --> db
 ```
 
@@ -249,7 +264,25 @@ flowchart TD
    | ↩️ Already imported | The same file is in the database. | No action. |
 
 4. Click a statement in the **Statements** list to see its transactions.
-5. To delete a statement, click **Delete…**, then click **Delete**.
+   - Your [rules](#-rules) already categorised the matching transactions during the upload.
+   - Turn on **Show what Jev sees** to check the masked text.
+5. To categorise the other transactions, choose **Laya** or **Jev** in **Categorise with**. Then click
+   **Categorise with …** on the statement. To categorise again, click **Redo with …**.
+   Categories that you set by hand do not change.
+6. To change one category, select a new category in the row. The row then shows **manual**.
+7. To change many categories, open the **Transactions** tab:
+   1. Type in the search box. The search looks at all columns: narration, masked text, category,
+      bank, amount (`26000` or `1,000`), day (`05-04-2026`) or month (`2026-05`).
+   2. Optional: filter by direction, category or account.
+   3. Select rows, or select all results with the box in the table header.
+   4. Select a category, then click **Apply to …**.
+   - Money in and money out have different categories. Select only one direction, except for **Pass-through**.
+8. To see how money moves, open the **Money flow** tab. It shows money in, money out and net per month,
+   totals by category, and the trend of one category.
+   - **Leave out transfers between my own accounts** removes *Transfer to Self* and *Transfer from Self*.
+   - **Pass-through** is never counted.
+9. To categorise the same transactions each time, click **Rules** at the top of the page. See [Rules](#-rules).
+10. To delete a statement, click **Delete…**, then click **Delete**.
 
 > [!WARNING]
 > **Delete** removes the statement and all of its transactions. You cannot undo this. To get the data again, upload the PDF again.
@@ -261,7 +294,7 @@ flowchart TD
 
 ## 🏷️ Categories and the local model
 
-The app puts each transaction into one of 32 categories (`backend/app/categorising/categories.py`).
+The app puts each transaction into one of 33 categories (`backend/app/categorising/categories.py`).
 **Laya**, an open-source decision model, makes the choice. It runs in Docker on your computer, so
 narrations do not leave your machine.
 
@@ -277,8 +310,53 @@ To start the model after you add the checkpoint to `models/laya-finance/`:
 docker compose --profile laya up -d laya
 ```
 
-If Laya is not running, uploads still work. The transactions stay uncategorised until you click
-**Categorise** on the statement.
+**Pass-through** is a category you set by hand for money that only passes through your account for someone
+else (for example rent you collect and pass on to a family member). It applies to money in and money out,
+Laya and Jev never choose it, and Money flow never counts it.
+
+If Laya is not running, uploads still work. Only your rules categorise transactions during an upload.
+The other transactions stay uncategorised until you click **Categorise** on the statement.
+
+---
+
+## 📏 Rules
+
+A rule sets a category on the transactions that match its conditions. Click **Rules** at the top of the
+page to open the side panel. Use the panel to add, edit, delete and apply rules.
+
+A rule has:
+
+- a **name**,
+- one or more **conditions**: a column, an operator and a value,
+- **AND** or **OR** between the conditions,
+- the **category** to set.
+
+AND is checked before OR. `A AND B OR C` means `(A AND B) OR C`. The panel shows each AND group as one block.
+
+| Column type | Operators |
+|---|---|
+| Text (Particulars, Bank) | contains, does not contain, equals, does not equal, starts with, ends with, matches regex, does not match regex |
+| Number (Debit, Credit) | =, ≠, >, <, ≥, ≤ |
+
+- Text operators ignore case. Many spaces count as one space.
+- Regex uses PostgreSQL regular expressions. Example: `UPI/P2A/\d+/MAMATA MONDAL` matches each reference number.
+  The app checks the regex when you save the rule.
+- The preview shows the matching transactions while you type.
+
+**When rules run:**
+
+1. When you upload a statement.
+2. When you click **Categorise** or **Redo**. Rules run first. Laya or Jev get only the transactions that no rule matched.
+3. When you click **Apply** (one rule) or **Apply all rules** in the panel. Saving a rule does not change transactions.
+
+**Which category wins:** a category you set by hand > a rule > Laya or Jev. Rules are checked from the top
+of the list; the first rule that matches wins. A rule sets a category only on transactions of the
+same direction (money in or money out). When you delete a rule, the transactions it categorised become
+uncategorised.
+
+The columns, operators and limits come from `backend/app/rules/config.py`. The panel reads them from
+`GET /api/rules/config`. To add a column, add it to that file. To add an operator, also add its SQL
+to `backend/app/rules/operators.py`.
 
 ---
 
@@ -341,6 +419,22 @@ The frontend reads one setting at build time:
 | `GET` | `/api/statements` | Lists the statements. The newest statement is first. |
 | `GET` | `/api/statements/{id}/transactions` | Lists the transactions of one statement. |
 | `DELETE` | `/api/statements/{id}` | Deletes one statement and its transactions. |
+| `POST` | `/api/statements/{id}/categorise` | Starts categorising one statement in the background. Rules run first. Query: `categoriser` (`laya` or `jev`), `redo`. Header: `X-TypeSafe-Key` (for Jev). |
+| `GET` | `/api/categories` | Lists the money in and money out categories with their descriptions. |
+| `GET` | `/api/transactions` | Searches all transactions. Query: `q`, `direction`, `category` (or `Uncategorised`), `statement_id`, `limit`. |
+| `PATCH` | `/api/transactions/{id}` | Sets the category of one transaction by hand. |
+| `PATCH` | `/api/transactions/bulk` | Sets one category on many transactions. Body: `ids`, `category`. |
+| `GET` | `/api/analytics/monthly` | Money in, money out and net per month. Query: `from`, `to` (`YYYY-MM`), `exclude_self`. |
+| `GET` | `/api/analytics/categories` | Totals by category. Query: `direction`, `from`, `to`, `exclude_self`. |
+| `GET` | `/api/analytics/trend` | The total of one category per month. Query: `category`, `from`, `to`. |
+| `GET` | `/api/rules/config` | Shows the columns, operators, connectors, categories and limits for rules. |
+| `GET` | `/api/rules` | Lists the rules in the order they are checked. |
+| `POST` | `/api/rules` | Adds a rule. |
+| `PUT` | `/api/rules/{id}` | Changes a rule. |
+| `DELETE` | `/api/rules/{id}` | Deletes a rule. Its transactions become uncategorised. |
+| `POST` | `/api/rules/preview` | Shows the transactions that a rule matches. Changes nothing. |
+| `POST` | `/api/rules/{id}/apply` | Applies one rule to all transactions. |
+| `POST` | `/api/rules/apply` | Applies all rules to all transactions. |
 
 Upload errors have a `code`:
 
@@ -361,6 +455,7 @@ Upload errors have a `code`:
 ```mermaid
 erDiagram
     statements ||--o{ transactions : "has"
+    rules |o--o{ transactions : "categorised"
     statements {
         bigint id PK
         text filename
@@ -379,15 +474,30 @@ erDiagram
         int row_index
         date date
         text particulars
+        text particulars_masked "the only text sent to Jev"
+        smallint masking_version
         numeric debit "numeric(14,2), >= 0"
         numeric credit "numeric(14,2), >= 0"
         numeric balance "numeric(14,2)"
         jsonb extra
+        text category
+        text category_source "laya · jev · rule · manual"
+        real category_confidence
+        bigint category_rule_id FK "ON DELETE SET NULL"
+        timestamptz categorised_at
+    }
+    rules {
+        bigint id PK
+        text name UK
+        int position "checked in this order"
+        jsonb conditions "AND / OR tree"
+        text category
     }
 ```
 
 - Money uses `numeric(14,2)`. This type keeps exact values.
-- Indexes are on `transactions.statement_id` and `transactions.date`.
+- Indexes are on `transactions.statement_id`, `transactions.date`, `transactions.category_rule_id`
+  and `(transactions.category, transactions.date)`.
 - Alembic manages the schema. The migrations are in `backend/alembic/versions/`.
 
 ---
@@ -403,19 +513,29 @@ track-my-money/
 │   │   ├── main.py                FastAPI application
 │   │   ├── config.py              Settings from .env
 │   │   ├── db.py                  Database engine and sessions
-│   │   ├── models.py              Tables: statements, transactions
-│   │   ├── schemas.py             API response models
-│   │   ├── api/statements.py      API endpoints
-│   │   └── parsing/
-│   │       ├── statement_parser.py    Finds tables, rows and amounts
-│   │       └── header_classifier.py   Masking, Jev calls, header images
+│   │   ├── models.py              Tables: statements, transactions, rules
+│   │   ├── schemas.py             API request and response models
+│   │   ├── api/
+│   │   │   ├── statements.py      Upload, list, delete, categorise, categories
+│   │   │   ├── transactions.py    Search, set one or many categories
+│   │   │   ├── analytics.py       Money flow figures
+│   │   │   └── rules.py           Rules: config, edit, preview, apply
+│   │   ├── parsing/
+│   │   │   ├── statement_parser.py    Finds tables, rows and amounts
+│   │   │   └── header_classifier.py   Masking, Jev calls, header images
+│   │   ├── masking/               Masks narrations before they can go to Jev
+│   │   ├── categorising/          Categories, Laya and Jev classifiers, background jobs
+│   │   └── rules/                 Rule config (columns, operators), conditions to SQL, apply
 │   ├── alembic/                   Database migrations
-│   └── tests/                     Parser tests and API tests
+│   ├── training/                  Synthetic data, Kaggle notebook and evaluation for Laya
+│   └── tests/                     Parser, API, masking, categorising, search, analytics and rules tests
 ├── ⚛️ frontend/
 │   └── src/
 │       ├── App.tsx                Page layout and state
 │       ├── api.ts                 Typed API client
-│       └── components/            Upload, key field, statements, transactions
+│       └── components/            Upload, statements, transactions, search, Money flow charts, rules panel
+├── 🧠 models/laya-finance/        The fine-tuned Laya checkpoint (not committed)
+├── 📝 docs/                       Case study: fine-tuning Laya
 ├── 🧪 playground/                 First command-line version of the parser
 └── 📄 sample_statements/          Your PDFs for local tests (not committed)
 ```
@@ -439,8 +559,9 @@ track-my-money/
 
 ### Categorising: Laya (local) or Jev (cloud, masked)
 
-Nothing is categorised automatically. You choose **Laya** or **Jev** in the **Categorise with** switch, then
-click **Categorise with …** on a statement.
+No model categorises transactions automatically. Only your rules run on upload, and rules never send
+data out of the app. You choose **Laya** or **Jev** in the **Categorise with** switch, then click
+**Categorise with …** on a statement. The rules run first, so the transactions they match never go to a model.
 
 - **Laya** runs on your computer. The original narration never leaves it.
 - **Jev** gets only the **masked narration**, the direction (money in or out) and an **amount range**

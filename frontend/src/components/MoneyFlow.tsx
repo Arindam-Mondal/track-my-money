@@ -15,10 +15,12 @@ import CategoryBarChart from './charts/CategoryBarChart'
 import MonthlyFlowChart from './charts/MonthlyFlowChart'
 import TrendChart from './charts/TrendChart'
 
-type Props = { categories: Categories | null }
+type Props = { categories: Categories | null; version: number } // version: bumped when categories change
+
+const PASS_THROUGH = 'Pass-through' // manual-only category, never counted in Money flow
 
 /** How money moves: totals for the period, monthly in vs out, totals by category, one category's trend. */
-export default function MoneyFlow({ categories }: Props) {
+export default function MoneyFlow({ categories, version }: Props) {
   const [filters, setFilters] = useState<FlowFilters>({ excludeSelf: true })
   const [monthly, setMonthly] = useState<MonthlyFlow[]>([])
   const [spending, setSpending] = useState<CategoryTotal[]>([])
@@ -41,7 +43,7 @@ export default function MoneyFlow({ categories }: Props) {
     return () => {
       current = false
     }
-  }, [filters])
+  }, [filters, version])
 
   useEffect(() => {
     let current = true
@@ -51,7 +53,7 @@ export default function MoneyFlow({ categories }: Props) {
     return () => {
       current = false
     }
-  }, [trendCategory, filters])
+  }, [trendCategory, filters, version])
 
   const totalIn = monthly.reduce((sum, m) => sum + Number(m.money_in), 0)
   const totalOut = monthly.reduce((sum, m) => sum + Number(m.money_out), 0)
@@ -92,6 +94,7 @@ export default function MoneyFlow({ categories }: Props) {
           />
           Leave out transfers between my own accounts
         </label>
+        <span className="hint">Pass-through is never counted.</span>
       </section>
 
       {error && (
@@ -140,11 +143,13 @@ export default function MoneyFlow({ categories }: Props) {
             {categories &&
               (['out', 'in'] as const).map((direction) => (
                 <optgroup key={direction} label={direction === 'out' ? 'Money out' : 'Money in'}>
-                  {categories[direction].map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
+                  {categories[direction]
+                    .filter((c) => c.name !== PASS_THROUGH)
+                    .map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
                 </optgroup>
               ))}
           </select>

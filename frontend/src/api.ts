@@ -29,7 +29,8 @@ export type Transaction = {
   balance: string | null
   extra: Record<string, string>
   category: string | null
-  category_source: 'laya' | 'jev' | 'manual' | null
+  category_source: 'laya' | 'jev' | 'rule' | 'manual' | null
+  category_rule_id: number | null // the rule that set it, when the source is 'rule'
   category_confidence: number | null
 }
 
@@ -58,11 +59,13 @@ export type UploadErrorCode =
 export class ApiError extends Error {
   readonly status: number
   readonly code: UploadErrorCode | null
+  readonly condition: number | null // a rule error: which condition (1-based, in reading order)
 
-  constructor(status: number, message: string, code: UploadErrorCode | null = null) {
+  constructor(status: number, message: string, code: UploadErrorCode | null = null, condition: number | null = null) {
     super(message)
     this.status = status
     this.code = code
+    this.condition = condition
   }
 }
 
@@ -78,6 +81,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = body?.detail
     if (detail && typeof detail === 'object' && 'code' in detail) {
       throw new ApiError(response.status, detail.message, detail.code)
+    }
+    if (detail && typeof detail === 'object' && 'message' in detail) {
+      throw new ApiError(response.status, detail.message, null, detail.condition ?? null)
+    }
+    if (Array.isArray(detail) && detail[0]?.msg) {
+      throw new ApiError(response.status, detail[0].msg) // FastAPI's request validation
     }
     throw new ApiError(response.status, typeof detail === 'string' ? detail : `Request failed (${response.status})`)
   }
@@ -150,4 +159,92 @@ export function getCategoryTotals(direction: Direction, filters: FlowFilters): P
 
 export function getTrend(category: string, filters: FlowFilters): Promise<TrendPoint[]> {
   return request(`/api/analytics/trend?${query({ category, from: filters.from, to: filters.to })}`)
+}
+
+// ---------------------------------------------------------------- search & bulk categories
+
+export type SearchRow = Transaction & { statement_id: number; bank: string | null; account_last4: string | null }
+export type SearchResult = { total: number; transactions: SearchRow[] }
+export type SearchFilters = { q: string; direction?: Direction; category?: string; statementId?: number }
+
+export function searchTransactions(filters: SearchFilters): Promise<SearchResult> {
+  const params = new URLSearchParams()
+  if (filters.q.trim()) params.set('q', filters.q.trim())
+  if (filters.direction) params.set('direction', filters.direction)
+  if (filters.category) params.set('category', filters.category)
+  if (filters.statementId !== undefined) params.set('statement_id', String(filters.statementId))
+  return request(`/api/transactions?${params}`)
+}
+
+export function setCategoryForMany(ids: number[], category: string): Promise<{ updated: number }> {
+  return request('/api/transactions/bulk', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, category }),
+  })
+}
+
+// ---------------------------------------------------------------- rules (backend/app/rules)
+// The builder's vocabulary (columns, operators, connectors, input kinds, limits) comes only from
+// GET /api/rules/config, so these types are generic: nothing here names a column or an operator.
+
+export type RuleOption = { id: string; label: string; hint?: string | null }
+export type RuleField = { id: string; label: string; type: string }
+export type RuleType = { input: string; operators: RuleOption[] }
+export type RuleLimits = { max_conditions: number; max_value_length: number; max_depth: number }
+export type RuleConfig = {
+  fields: RuleField[]
+  types: Record<string, RuleType>
+  connectors: RuleOption[] // tightest-binding first (AND before OR)
+  categories: Categories
+  limits: RuleLimits
+}
+
+export type Condition = { field: string; operator: string; value: string }
+export type ConditionGroup = { match: string; items: (Condition | ConditionGroup)[] }
+export type RuleDraft = { conditions: ConditionGroup; category: string }
+export type Rule = RuleDraft & { id: number; name: string; position: number; applied_count: number }
+export type RulePreview = {
+  total: number
+  will_set: number
+  manual: number
+  wrong_direction: number
+  other_rule: number
+  transactions: SearchRow[]
+}
+export type RuleApplied = { set: number; cleared: number }
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+export function getRuleConfig(): Promise<RuleConfig> {
+  return request('/api/rules/config')
+}
+
+export function listRules(): Promise<Rule[]> {
+  return request('/api/rules')
+}
+
+export function createRule(rule: RuleDraft & { name: string }): Promise<Rule> {
+  return request('/api/rules', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(rule) })
+}
+
+export function updateRule(id: number, rule: RuleDraft & { name: string }): Promise<Rule> {
+  return request(`/api/rules/${id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(rule) })
+}
+
+export function deleteRule(id: number): Promise<void> {
+  return request(`/api/rules/${id}`, { method: 'DELETE' })
+}
+
+export function previewRule(draft: RuleDraft, ruleId?: number): Promise<RulePreview> {
+  const params = ruleId === undefined ? '' : `?rule_id=${ruleId}`
+  return request(`/api/rules/preview${params}`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(draft) })
+}
+
+export function applyRule(id: number): Promise<RuleApplied> {
+  return request(`/api/rules/${id}/apply`, { method: 'POST' })
+}
+
+export function applyAllRules(): Promise<RuleApplied> {
+  return request('/api/rules/apply', { method: 'POST' })
 }

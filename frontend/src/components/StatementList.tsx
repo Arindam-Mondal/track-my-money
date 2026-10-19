@@ -111,11 +111,11 @@ function CategoryProgress({ statement, categoriser, onCategorise }: ProgressProp
         {done === 0 ? 'not categorised' : `${done}/${total}`}
       </span>
       {done < total ? (
-        <button type="button" onClick={() => onCategorise(false)}>
+        <button type="button" title={`Your rules run first; the rest go to ${model}`} onClick={() => onCategorise(false)}>
           Categorise with {model}
         </button>
       ) : (
-        <button type="button" title="Categorise again; your manual choices are kept" onClick={() => onCategorise(true)}>
+        <button type="button" title="Categorise again: your rules run first, and your manual choices are kept" onClick={() => onCategorise(true)}>
           Redo with {model}
         </button>
       )}

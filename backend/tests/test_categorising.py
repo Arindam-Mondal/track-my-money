@@ -37,8 +37,15 @@ def transactions(client: TestClient, statement_id: int) -> list[dict]:
 
 def test_each_direction_gets_its_own_categories():
     out = build_question("out")
-    assert list(out.criteria) == list(CATEGORIES["out"])
-    assert list(build_question("in").criteria) == list(CATEGORIES["in"])
+    assert list(out.criteria) == [c for c in CATEGORIES["out"] if c != "Pass-through"]
+    assert list(build_question("in").criteria) == [c for c in CATEGORIES["in"] if c != "Pass-through"]
+
+
+def test_pass_through_is_manual_only():
+    for direction in ("out", "in"):
+        assert "Pass-through" in CATEGORIES[direction]  # the user can choose it either way
+        assert "Pass-through" not in build_question(direction).criteria  # a model never can
+        assert "Pass-through" not in build_question(direction, with_descriptions=True).criteria
 
 
 def test_laya_sees_the_full_narration():

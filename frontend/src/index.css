@@ -642,3 +642,298 @@ mark.placeholder {
 .progress .muted {
   color: var(--muted);
 }
+
+/* Transaction search */
+.search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.search-input {
+  flex: 1 1 320px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  min-width: 0;
+}
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 0 10px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.bulk-bar strong {
+  color: var(--text);
+}
+
+.bulk-bar .ok {
+  color: var(--ok);
+}
+
+.bulk-bar .bad {
+  color: var(--bad);
+}
+
+.bulk-action {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+th.check,
+td.check {
+  width: 32px;
+  text-align: center;
+}
+
+/* Rules side panel */
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (min-width: 1100px) {
+  main.with-drawer {
+    margin-right: 460px;
+  }
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100vw);
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 0.08);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  z-index: 10;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer-head h2 {
+  margin: 0;
+}
+
+.drawer .hint {
+  margin: 0;
+}
+
+.drawer p.ok {
+  color: var(--ok);
+  margin: 0;
+}
+
+.drawer p.bad,
+.drawer .bad {
+  color: var(--bad);
+  margin: 0;
+}
+
+.drawer-actions,
+.editor-actions,
+.rule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rule-list {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.rule-list li {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.rule-list li::marker {
+  color: var(--muted);
+}
+
+.rule-name {
+  font-weight: 600;
+}
+
+.rule-summary {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.rule-actions {
+  margin-top: 4px;
+}
+
+.rule-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.rule-editor h3,
+.rule-preview h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.stacked {
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.stacked input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.conditions {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.conditions legend {
+  font-size: 0.9rem;
+  padding: 0 4px;
+}
+
+.conditions > button {
+  justify-self: start;
+}
+
+.condition {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas:
+    'join field operator remove'
+    'value value value value'
+    'note note note note';
+  gap: 4px 6px;
+  align-items: center;
+}
+
+.condition > :nth-child(1) {
+  grid-area: join;
+}
+
+.condition > :nth-child(2) {
+  grid-area: field;
+}
+
+.condition > :nth-child(3) {
+  grid-area: operator;
+}
+
+.condition .value {
+  grid-area: value;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  min-width: 0;
+}
+
+.condition > button {
+  grid-area: remove;
+}
+
+.condition.has-error .value {
+  border-color: var(--bad);
+}
+
+.condition-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+/* A new OR block: a divider above it, so the AND groups read as groups. */
+.condition.starts-block {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.connector-first {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.rule-preview {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.preview-counts {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.preview-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  border-bottom: 1px solid var(--grid);
+  padding-bottom: 6px;
+}
+
+.preview-list .particulars {
+  overflow-wrap: anywhere;
+}
+
+.preview-list li > .sub:last-child {
+  grid-column: 2 / -1;
+}
+
+.preview-list .debit {
+  color: var(--debit);
+}
+
+.preview-list .credit {
+  color: var(--credit);
+}

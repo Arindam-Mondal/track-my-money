@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.categorising.categories import CATEGORIES, SELF_TRANSFERS, UNCATEGORISED
+from app.categorising.categories import CATEGORIES, IGNORED, SELF_TRANSFERS, UNCATEGORISED
 from app.db import get_session
 from app.models import Transaction
 from app.schemas import CategoryTotal, MonthlyFlow, TrendPoint
@@ -46,9 +46,9 @@ def filtered[*Ts](query: Select[*Ts], start: str | None, end: str | None, exclud
         query = query.where(Transaction.date >= month_start(start))
     if end:
         query = query.where(Transaction.date < next_month(month_start(end)))
-    if exclude_self:
-        query = query.where(or_(Transaction.category.is_(None), Transaction.category.not_in(SELF_TRANSFERS)))
-    return query
+    # Pass-through is never counted; own-account transfers only when the toggle says so.
+    excluded = IGNORED | SELF_TRANSFERS if exclude_self else IGNORED
+    return query.where(or_(Transaction.category.is_(None), Transaction.category.not_in(excluded)))
 
 
 def month_of() -> ColumnElement[dt.datetime]:
@@ -113,6 +113,8 @@ def trend(
     start: Annotated[Month, Query(alias="from")] = None,
     end: Annotated[Month, Query(alias="to")] = None,
 ) -> list[TrendPoint]:
+    if category in IGNORED:
+        raise HTTPException(422, f"{category!r} is not counted in Money flow")
     if category in CATEGORIES["out"]:
         amount = Transaction.debit
     elif category in CATEGORIES["in"]:

@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.categorising.categories import CATEGORIES, Direction  # noqa: E402
+from app.categorising.categories import Direction, model_categories  # noqa: E402
 from app.categorising.laya import TxInput, build_question, build_state  # noqa: E402
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -348,7 +348,8 @@ def row(category: str, direction: Direction) -> dict:
 
 def generate(per_category: int, only: list[str] | None = None) -> list[dict]:
     rows = []
-    for direction, categories in CATEGORIES.items():
+    for direction in ("out", "in"):
+        categories = model_categories(direction)
         for category in categories:
             if only and category not in only:
                 continue
@@ -377,7 +378,7 @@ def main() -> None:
     args = parser.parse_args()
 
     random.seed(args.seed if args.seed is not None else 1000 + args.round)
-    all_categories = [c for cats in CATEGORIES.values() for c in cats]
+    all_categories = [c for d in ("out", "in") for c in model_categories(d)]
     focus = [c.strip() for c in args.focus.split(",") if c.strip()]
     unknown = [c for c in focus if c not in all_categories]
     if unknown:

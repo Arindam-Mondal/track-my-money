@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   type Categories,
   type Categoriser,
@@ -7,15 +7,20 @@ import {
   getCategories,
   getHealth,
   listStatements,
+  listRules,
   listTransactions,
+  type Rule,
   type Statement,
   type Transaction,
 } from './api'
 import ApiKeyField from './components/ApiKeyField'
 import CategoriserSwitch from './components/CategoriserSwitch'
 import StatementList from './components/StatementList'
+import TransactionSearch from './components/TransactionSearch'
+import RulesPanel from './components/rules/RulesPanel'
 import TransactionTable from './components/TransactionTable'
 import UploadPanel from './components/UploadPanel'
+import { RuleNames } from './ruleNames'
 
 // The charts library is large: load the Money flow tab only when it's opened.
 const MoneyFlow = lazy(() => import('./components/MoneyFlow'))
@@ -24,7 +29,7 @@ const KEY_STORAGE = 'track-my-money.jev-key'
 const CATEGORISER_STORAGE = 'track-my-money.categoriser'
 const POLL_MS = 2000 // while a statement is being categorised in the background
 
-type Tab = 'statements' | 'flow'
+type Tab = 'statements' | 'transactions' | 'flow'
 
 // localStorage can be unavailable (private windows, blocked site data); the key then lasts this visit only.
 function loadKey(): string {
@@ -70,7 +75,17 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [transactions, setTransactions] = useState<Transaction[] | null>(null)
   const [transactionsVersion, setTransactionsVersion] = useState(0)
+  const [rules, setRules] = useState<Rule[]>([])
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const refreshRules = useCallback(() => {
+    listRules()
+      .then(setRules)
+      .catch((e: Error) => setError(e.message))
+  }, [])
+  const ruleNames = useMemo(() => new Map(rules.map((r) => [r.id, r.name])), [rules])
+  const closeRules = useCallback(() => setRulesOpen(false), [])
 
   const refresh = useCallback(async () => {
     try {
@@ -89,7 +104,8 @@ export default function App() {
       .then(setCategories)
       .catch((e: Error) => setError(e.message))
     void refresh()
-  }, [refresh])
+    refreshRules()
+  }, [refresh, refreshRules])
 
   // While any statement is being categorised, refresh its progress (and the open transactions).
   const categorising = statements.some((s) => s.categorising)
@@ -132,6 +148,7 @@ export default function App() {
     try {
       await categoriseStatement(id, { categoriser, redo, apiKey })
       await refresh()
+      refreshRules() // categorising runs the rules first
     } catch (e) {
       setError((e as Error).message)
     }
@@ -142,75 +159,112 @@ export default function App() {
     void refresh()
   }
 
+  // Rules were applied or deleted: reload what's on screen in every tab.
+  const transactionsChanged = useCallback(() => {
+    void refresh()
+    setTransactionsVersion((v) => v + 1)
+  }, [refresh])
+
   const selected = statements.find((s) => s.id === selectedId) ?? null
 
   return (
-    <main>
-      <header>
-        <h1>Track My Money</h1>
-        <p className="sub">Import bank statements and see every transaction in one place.</p>
-        <nav className="tabs" aria-label="Views">
-          <button type="button" aria-current={tab === 'statements'} onClick={() => setTab('statements')}>
-            Statements
-          </button>
-          <button type="button" aria-current={tab === 'flow'} onClick={() => setTab('flow')}>
-            Money flow
-          </button>
-        </nav>
-      </header>
-
-      {error && (
-        <p className="banner" role="alert">
-          {error}
-        </p>
-      )}
-
-      {tab === 'flow' ? (
-        <Suspense fallback={<p className="empty">Loading charts…</p>}>
-          <MoneyFlow categories={categories} />
-        </Suspense>
-      ) : (
-        <>
-          <div className="top">
-            <UploadPanel apiKey={apiKey} onImported={refresh} />
-            <div className="side">
-              <ApiKeyField
-                value={apiKey}
-                serverHasKey={serverHasKey}
-                onChange={(key) => {
-                  setApiKey(key)
-                  saveKey(key)
-                }}
-              />
-              <CategoriserSwitch
-                value={categoriser}
-                jevAvailable={apiKey !== '' || serverHasKey === true}
-                onChange={(value) => {
-                  setCategoriser(value)
-                  saveCategoriser(value)
-                }}
-              />
-            </div>
+    <RuleNames.Provider value={ruleNames}>
+      <main className={rulesOpen ? 'with-drawer' : undefined}>
+        <header>
+          <div className="title-row">
+            <h1>Track My Money</h1>
+            <button type="button" aria-expanded={rulesOpen} onClick={() => setRulesOpen((open) => !open)}>
+              Rules{rules.length ? ` (${rules.length})` : ''}
+            </button>
           </div>
+          <p className="sub">Import bank statements and see every transaction in one place.</p>
+          <nav className="tabs" aria-label="Views">
+            <button type="button" aria-current={tab === 'statements'} onClick={() => setTab('statements')}>
+              Statements
+            </button>
+            <button type="button" aria-current={tab === 'transactions'} onClick={() => setTab('transactions')}>
+              Transactions
+            </button>
+            <button type="button" aria-current={tab === 'flow'} onClick={() => setTab('flow')}>
+              Money flow
+            </button>
+          </nav>
+        </header>
 
-          <StatementList
+        {error && (
+          <p className="banner" role="alert">
+            {error}
+          </p>
+        )}
+
+        {tab === 'transactions' ? (
+          <TransactionSearch
+            categories={categories}
             statements={statements}
-            selectedId={selectedId}
-            onSelect={select}
-            onDelete={remove}
-            onCategorise={categorise}
-            categoriser={categoriser}
+            version={transactionsVersion}
+            onChanged={transactionsChanged}
           />
-          {selected && (
-            <TransactionTable
-              statement={selected}
-              transactions={transactions}
-              categories={categories}
-              onTransactionChanged={transactionChanged}
+        ) : tab === 'flow' ? (
+          <Suspense fallback={<p className="empty">Loading charts…</p>}>
+            <MoneyFlow categories={categories} version={transactionsVersion} />
+          </Suspense>
+        ) : (
+          <>
+            <div className="top">
+              <UploadPanel
+                apiKey={apiKey}
+                onImported={() => {
+                  void refresh()
+                  refreshRules() // uploads apply the rules
+                }}
+              />
+              <div className="side">
+                <ApiKeyField
+                  value={apiKey}
+                  serverHasKey={serverHasKey}
+                  onChange={(key) => {
+                    setApiKey(key)
+                    saveKey(key)
+                  }}
+                />
+                <CategoriserSwitch
+                  value={categoriser}
+                  jevAvailable={apiKey !== '' || serverHasKey === true}
+                  onChange={(value) => {
+                    setCategoriser(value)
+                    saveCategoriser(value)
+                  }}
+                />
+              </div>
+            </div>
+
+            <StatementList
+              statements={statements}
+              selectedId={selectedId}
+              onSelect={select}
+              onDelete={remove}
+              onCategorise={categorise}
+              categoriser={categoriser}
             />
-          )}
-        </>
+            {selected && (
+              <TransactionTable
+                statement={selected}
+                transactions={transactions}
+                categories={categories}
+                onTransactionChanged={transactionChanged}
+              />
+            )}
+          </>
+        )}
+      </main>
+      {rulesOpen && (
+        <RulesPanel
+          rules={rules}
+          onClose={closeRules}
+          onRulesChanged={refreshRules}
+          onTransactionsChanged={transactionsChanged}
+        />
       )}
-    </main>
+    </RuleNames.Provider>
   )
 }

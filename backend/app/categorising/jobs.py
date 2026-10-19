@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from typing import Literal
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import ColumnElement, or_, select, update
 from sqlalchemy.orm import Session
 from typesafe_sdk import TypeSafeError
 
@@ -21,6 +21,7 @@ from app.categorising.laya import CategoryClassifier, TxInput, laya_classifier
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Transaction
+from app.rules.engine import MODEL_SOURCES, apply_rules
 
 logger = logging.getLogger(__name__)
 
@@ -74,18 +75,29 @@ def run(statement_id: int, redo: bool = False, categoriser: Categoriser = "laya"
             _running.discard(statement_id)
 
 
+def model_may_set() -> ColumnElement[bool]:
+    """Uncategorised rows and earlier model answers: never manual or rule categories."""
+    return or_(Transaction.category_source.is_(None), Transaction.category_source.in_(MODEL_SOURCES))
+
+
 def categorise_statement(
     statement_id: int, classify: CategoryClassifier, *, redo: bool = False, source: Categoriser = "laya"
 ) -> int:
     """Categorise a statement's transactions; manual categories are never touched.
 
-    Without `redo`, only uncategorised transactions are asked about; with it, earlier Laya and Jev
-    answers are redone too. Returns how many were saved. If the model fails, what was saved so far stays.
+    The user's rules run first, and the rows they match never go to the model. Then, without
+    `redo`, only uncategorised transactions are asked about; with it, earlier Laya and Jev answers
+    are redone too. Returns how many the model answered. If it fails, what was saved so far stays.
     """
+    with session_factory() as session:
+        by_rules = apply_rules(session, statement_id).set
+        session.commit()
+    logger.info("Rules categorised %d transaction(s) of statement %d", by_rules, statement_id)
+
     with session_factory() as session:
         query = select(Transaction).where(Transaction.statement_id == statement_id)
         if redo:
-            query = query.where(or_(Transaction.category_source.is_(None), Transaction.category_source.in_(("laya", "jev"))))
+            query = query.where(model_may_set())
         else:
             query = query.where(Transaction.category.is_(None))
         work = [
@@ -101,7 +113,8 @@ def categorise_statement(
                 answer = future.result()
                 session.execute(
                     update(Transaction)
-                    .where(Transaction.id == futures[future], Transaction.category_source.is_distinct_from("manual"))
+                    # A rule applied or a manual choice made meanwhile wins over the model.
+                    .where(Transaction.id == futures[future], model_may_set())
                     .values(
                         category=answer.category,
                         category_source=source,

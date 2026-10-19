@@ -88,3 +88,27 @@ def test_category_trend(client: TestClient, data):
 
 def test_bad_month_is_rejected(client: TestClient):
     assert client.get("/api/analytics/monthly?from=2026-13").status_code == 422
+
+
+@pytest.fixture
+def with_pass_through(data, sessions: sessionmaker[Session]) -> None:
+    """Rent collected for someone (in) and passed on (out), both in March."""
+    with sessions() as session:
+        statement = session.query(Statement).one()
+        for i, (debit, credit) in enumerate([("0", "26000.00"), ("26000.00", "0")]):
+            statement.transactions.append(Transaction(
+                row_index=100 + i, date=dt.date(2026, 3, 10 + i), particulars=f"pass {i}", debit=Decimal(debit),
+                credit=Decimal(credit), balance=None, extra={}, category="Pass-through", category_source="manual",
+            ))
+        session.commit()
+
+
+@pytest.mark.parametrize("exclude_self", ["true", "false"])
+def test_pass_through_is_never_counted(client: TestClient, with_pass_through, exclude_self):
+    march = client.get(f"/api/analytics/monthly?from=2026-03&to=2026-03&exclude_self={exclude_self}").json()[0]
+    expected_in = "100000.00" if exclude_self == "true" else "110000.00"  # the only change is the self transfer
+    assert (march["money_in"], march["money_out"]) == (expected_in, "1549.00")
+    for direction in ("in", "out"):
+        totals = client.get(f"/api/analytics/categories?direction={direction}&exclude_self={exclude_self}").json()
+        assert "Pass-through" not in {t["category"] for t in totals}
+    assert client.get("/api/analytics/trend", params={"category": "Pass-through"}).status_code == 422

@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import generate_dataset as gen  # noqa: E402
 
-from app.categorising.categories import CATEGORIES  # noqa: E402
+from app.categorising.categories import model_categories  # noqa: E402
 from app.masking.brands import BRANDS  # noqa: E402
 from app.masking.masker import mask_narration  # noqa: E402
 
@@ -70,7 +70,7 @@ def main() -> None:
     args = parser.parse_args()
     random.seed(args.seed)
 
-    categories = [(d, c) for d, cats in CATEGORIES.items() for c in cats]
+    categories = [(d, c) for d in ("out", "in") for c in model_categories(d)]
     leak_counts, over_masked, unknown_merchants = Counter(), Counter(), Counter()
     examples: list[str] = []
     for i in range(args.n):

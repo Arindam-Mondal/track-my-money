@@ -10,6 +10,11 @@ from typing import Literal
 
 Direction = Literal["in", "out"]
 
+PASS_THROUGH = (
+    "Money that only passes through this account for someone else (e.g. rent collected for a family member "
+    "and passed on). Not counted as income or spending."
+)
+
 CATEGORIES: dict[Direction, dict[str, str]] = {
     "out": {
         "Mutual Fund / SIP": "Investments into mutual funds: SIP, NACH or ACH debits to AMCs, BSE StAR MF, CAMS, KFintech, Groww, Zerodha Coin, Kuvera, Paytm Money.",
@@ -35,6 +40,7 @@ CATEGORIES: dict[Direction, dict[str, str]] = {
         "Transfer to Others": "Money sent to another person (UPI, IMPS, NEFT, RTGS) that is not a purchase from a business.",
         "Transfer to Self": "Money moved to another account of the same account holder.",
         "Other Expense": "Money going out that fits none of the other categories.",
+        "Pass-through": PASS_THROUGH,
     },
     "in": {
         "Salary": "Salary or wages credited by an employer (SAL, SALARY, payroll).",
@@ -46,11 +52,16 @@ CATEGORIES: dict[Direction, dict[str, str]] = {
         "Transfer from Others": "Money received from another person (UPI, IMPS, NEFT, RTGS).",
         "Transfer from Self": "Money moved in from another account of the same account holder.",
         "Other Income": "Money coming in that fits none of the other categories.",
+        "Pass-through": PASS_THROUGH,
     },
 }
 
-# Own-account transfers: excluded from income and spending totals by default.
+# Own-account transfers: excluded from income and spending totals by default (a toggle in Money flow).
 SELF_TRANSFERS = frozenset({"Transfer to Self", "Transfer from Self"})
+# Set by hand only: never offered to Laya or Jev (the fine-tuned Laya keeps its trained options).
+MANUAL_ONLY = frozenset({"Pass-through"})
+# Always left out of Money flow, whatever the toggle says.
+IGNORED = frozenset({"Pass-through"})
 UNCATEGORISED = "Uncategorised"
 
 
@@ -61,3 +72,8 @@ def direction_of(debit: Decimal) -> Direction:
 
 def is_valid(category: str, direction: Direction) -> bool:
     return category in CATEGORIES[direction]
+
+
+def model_categories(direction: Direction) -> dict[str, str]:
+    """The categories a model may choose from: all of them except the manual-only ones."""
+    return {name: text for name, text in CATEGORIES[direction].items() if name not in MANUAL_ONLY}

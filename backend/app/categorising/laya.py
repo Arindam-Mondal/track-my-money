@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from typesafe_sdk import Choice, Content, RetryPolicy, TypeSafeClient, TypeSafeError
 
-from app.categorising.categories import CATEGORIES, Direction, is_valid
+from app.categorising.categories import Direction, is_valid, model_categories
 from app.config import settings
 
 
@@ -52,9 +52,8 @@ def build_question(direction: Direction, with_descriptions: bool = False) -> Cho
     data is built with this same function, so Laya is asked exactly what it learned.
     Jev has no such budget, so it gets the descriptions too."""
     kind = "spending" if direction == "out" else "income"
-    criteria: dict[str, str | None] = (
-        dict(CATEGORIES[direction]) if with_descriptions else {name: None for name in CATEGORIES[direction]}
-    )
+    options = model_categories(direction)  # never the manual-only ones (Pass-through)
+    criteria: dict[str, str | None] = dict(options) if with_descriptions else {name: None for name in options}
     return Choice(instructions=f"Which {kind} category does this bank transaction belong to?", criteria=criteria)
 
 

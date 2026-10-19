@@ -76,7 +76,7 @@ class FakeLaya:
 def sessions(engine: Engine) -> sessionmaker[Session]:
     """Sessions on an emptied test database."""
     with engine.begin() as connection:
-        connection.execute(text("truncate statements restart identity cascade"))
+        connection.execute(text("truncate statements, rules restart identity cascade"))
     return sessionmaker(engine, expire_on_commit=False)
 
 
