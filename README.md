@@ -172,13 +172,15 @@ flowchart TD
 
 ## 🧰 Requirements
 
+To run the app, you need only Docker. For development, you also need uv, Node.js and pnpm.
+
 | Tool | Version | Use |
 |---|---|---|
-| 🐳 [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 4.x or later | Runs PostgreSQL |
-| ⚡ [uv](https://docs.astral.sh/uv/) | 0.11 or later | Installs Python 3.14 and the backend packages |
-| 🟢 [Node.js](https://nodejs.org/) | 24 or later | Runs the frontend tools |
-| 📦 [pnpm](https://pnpm.io/) | 11 or later | Installs the frontend packages |
-| 🔑 Jev API key | optional | Reads column names with AI. Get a key in the [TypeSafe console](https://docs.typesafe.ai). |
+| 🐳 [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 4.x or later | Runs the app, PostgreSQL and Laya |
+| ⚡ [uv](https://docs.astral.sh/uv/) | 0.11 or later | Development only: installs Python 3.14 and the backend packages |
+| 🟢 [Node.js](https://nodejs.org/) | 24 or later | Development only: runs the frontend tools |
+| 📦 [pnpm](https://pnpm.io/) | 11 or later | Development only: installs the frontend packages |
+| 🔑 Jev API key | optional | Reads column names and categorises with AI. Get a key in the [TypeSafe console](https://docs.typesafe.ai). |
 
 ---
 
@@ -187,21 +189,75 @@ flowchart TD
 > [!WARNING]
 > The database uses port **5433**, not 5432. Port 5432 is often used by a local PostgreSQL installation. Do not change the port to 5432 if a local PostgreSQL runs on your computer.
 
-### 1. Start the database
+### Run everything with Docker
 
 1. Start Docker Desktop.
 2. Open a terminal in the project folder.
-3. Start PostgreSQL:
+3. Optional: put your Jev API key in `backend/.env`. You can also enter the key in the app later.
    ```bash
-   docker compose up -d
+   cp backend/.env.example backend/.env
    ```
+   ```ini
+   TYPESAFE_API_KEY=your-key
+   ```
+4. Build and start the app:
+   ```bash
+   docker compose up -d --build
+   ```
+   The first build takes a few minutes. The backend creates the database tables when it starts.
+5. Open http://127.0.0.1:8080. The API documentation is at http://127.0.0.1:8080/docs.
+
+| Container | What it does | Address |
+|---|---|---|
+| `frontend` | Shows the app (nginx). Sends `/api` to the backend. | http://127.0.0.1:8080 |
+| `backend` | FastAPI. Reads `backend/.env` if the file exists. | inside Docker only |
+| `db` | PostgreSQL 17 | `127.0.0.1:5433` |
+| `laya` | Optional. The local model for categories. | `127.0.0.1:8100` |
+
+**Optional: categorise on your computer with Laya.** Put the fine-tuned checkpoint in `models/laya-finance/`
+(see [`backend/training/README.md`](backend/training/README.md)). Then start Laya too:
+
+```bash
+docker compose --profile laya up -d
+```
+
+**Stop the app:**
+
+```bash
+docker compose --profile laya down
+```
+
+Your data stays in Docker volumes. Do not add `-v`: it deletes the volumes and all imported statements.
+
+**After you change the code**, build and start again: `docker compose up -d --build`.
+
+> [!IMPORTANT]
+> The masking key gives each person the same token in all statements. If `backend/.env` has `MASKING_SECRET`,
+> the containers use it. If not, the backend makes a key and keeps it in the `backend-state` volume. Keep the
+> key: a new key gives each person a new token.
+
+### Run for development
+
+Use this setup to change the code: the backend and the frontend reload after each change. Run only the
+database in Docker. If the Docker app is running, stop its `backend` and `frontend` containers first:
+`docker compose stop backend frontend`.
+
+#### 1. Start the database
+
+1. Start Docker Desktop.
+2. Open a terminal in the project folder.
+3. Start PostgreSQL only:
+   ```bash
+   docker compose up -d db
+   ```
+   To also start Laya: `docker compose --profile laya up -d db laya`.
 4. Make sure that the database is healthy:
    ```bash
    docker compose ps
    ```
    The `STATUS` column must show `healthy`.
 
-### 2. Start the backend
+#### 2. Start the backend
 
 > [!CAUTION]
 > The `backend/.env` file can contain your Jev API key. Do not commit this file. The `.gitignore` file excludes it.
@@ -228,7 +284,7 @@ flowchart TD
    ```
 6. Open http://127.0.0.1:8000/docs to see the API documentation.
 
-### 3. Start the frontend
+#### 3. Start the frontend
 
 1. Open a second terminal in the project folder.
 2. Go to the frontend folder:
@@ -243,7 +299,7 @@ flowchart TD
    ```bash
    pnpm dev
    ```
-5. Open http://localhost:5173 in your browser.
+5. Open http://127.0.0.1:5173 in your browser.
 
 ---
 
@@ -398,6 +454,13 @@ The backend reads these settings from `backend/.env`.
 | `TEST_DATABASE_URL` | `…/trackmymoney_test` | The database for the API tests. |
 | `TYPESAFE_API_KEY` | *(empty)* | The server Jev key. The app uses it when the browser sends no key. |
 | `CORS_ORIGINS` | *(empty)* | Comma-separated origins that can call the API. Use it when the frontend is on a different host. |
+| `LAYA_BASE_URL` | `http://127.0.0.1:8100` | The Laya server. |
+| `LAYA_MODEL` | *(empty)* | The Laya checkpoint to use, for example `laya-finance`. |
+| `MAX_UPLOAD_MB` | `20` | The largest PDF that the app accepts. |
+| `MASKING_SECRET` | *(made on first use)* | The key for masking tokens. Keep it. |
+| `MASKING_SECRET_FILE` | *(empty)* | Docker sets it to a file on the `backend-state` volume. The app keeps the key there when `MASKING_SECRET` is empty. |
+
+In Docker, `docker-compose.yml` replaces `DATABASE_URL` and `LAYA_BASE_URL` with the container addresses.
 
 The frontend reads one setting at build time:
 
@@ -506,9 +569,10 @@ erDiagram
 
 ```text
 track-my-money/
-├── 🐳 docker-compose.yml          PostgreSQL 17 on port 5433
+├── 🐳 docker-compose.yml          The app: frontend, backend, PostgreSQL 17 (port 5433), optional Laya
 ├── 🐳 docker/initdb/              Creates the test database
 ├── 🐍 backend/
+│   ├── Dockerfile                 Backend image: migrations, then the API
 │   ├── app/
 │   │   ├── main.py                FastAPI application
 │   │   ├── config.py              Settings from .env
@@ -530,6 +594,8 @@ track-my-money/
 │   ├── training/                  Synthetic data, Kaggle notebook and evaluation for Laya
 │   └── tests/                     Parser, API, masking, categorising, search, analytics and rules tests
 ├── ⚛️ frontend/
+│   ├── Dockerfile                 Frontend image: build with Node, serve with nginx
+│   ├── nginx.conf                 Serves the app and forwards /api to the backend
 │   └── src/
 │       ├── App.tsx                Page layout and state
 │       ├── api.ts                 Typed API client

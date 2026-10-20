@@ -94,3 +94,18 @@ def test_initials_go_with_the_name():
 def test_no_digits_survive_outside_tokens(narration):
     outside_tokens = re.sub(r"\[[A-Z_:0-9A-F]+\]", "", mask(narration)).replace("P2A", "")
     assert not re.search(r"[0-8]", outside_tokens)  # any digit left is a masking 9
+
+
+def test_masking_key_is_kept_in_its_file(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """In Docker the key lives on a volume (MASKING_SECRET_FILE): made once, then reused."""
+    from app import masking
+    from app.config import settings
+
+    key_file = tmp_path / "state" / "masking_secret"
+    monkeypatch.setattr(settings, "masking_secret", "")
+    monkeypatch.setattr(settings, "masking_secret_file", str(key_file))
+    first = masking.masking_secret()
+    assert key_file.read_text().strip() == first.decode()
+
+    monkeypatch.setattr(settings, "masking_secret", "")  # a restarted container
+    assert masking.masking_secret() == first

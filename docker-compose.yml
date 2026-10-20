@@ -1,8 +1,40 @@
-# Local services for track-my-money. Start with: docker compose up -d
-#   db   - Postgres on 127.0.0.1:5433 (a local Postgres may already be using 5432)
-#   laya - our fine-tuned Laya model, Jev-compatible API on 127.0.0.1:8100 (the backend uses 8000).
-#          Needs the checkpoint in models/laya-finance first: see backend/training/README.md.
+# track-my-money in Docker. Start everything with: docker compose up -d   -> http://127.0.0.1:8080
+#   frontend - the React app (nginx) on 127.0.0.1:8080; forwards /api to the backend
+#   backend  - FastAPI; runs the database migrations on start. Reads backend/.env if it exists
+#              (TYPESAFE_API_KEY, MASKING_SECRET, LAYA_MODEL).
+#   db       - Postgres on 127.0.0.1:5433 (a local Postgres may already be using 5432)
+#   laya     - optional (--profile laya): our fine-tuned Laya model, Jev-compatible API on 127.0.0.1:8100.
+#              Needs the checkpoint in models/laya-finance first: see backend/training/README.md.
+# For development, run only the database (docker compose up -d db) and the backend and frontend on the host.
 services:
+  frontend:
+    build: ./frontend
+    image: track-my-money-frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    image: track-my-money-backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # These replace the host values in backend/.env: inside Docker, services are reached by name.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trackmymoney}:${POSTGRES_PASSWORD:-trackmymoney}@db:5432/${POSTGRES_DB:-trackmymoney}
+      LAYA_BASE_URL: http://laya:8000
+      LAYA_API_KEY: ${LAYA_API_KEY:-local-laya-key}
+      # Used only when backend/.env has no MASKING_SECRET: the key is created once and kept on a volume.
+      MASKING_SECRET_FILE: /app/state/masking_secret
+    volumes:
+      - backend-state:/app/state
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:17
     environment:
@@ -51,3 +83,4 @@ services:
 volumes:
   pgdata:
   laya-cache:
+  backend-state:

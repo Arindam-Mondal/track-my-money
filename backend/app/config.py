@@ -18,8 +18,10 @@ class Settings(BaseSettings):
     laya_model: str = ""  # empty: the server's default router
     categorise_workers: int = 4
 
-    # Key for consistent masking tokens ([PERSON_xxxx]); generated into .env on first use.
+    # Key for consistent masking tokens ([PERSON_xxxx]); generated on first use. Saved to
+    # `masking_secret_file` when set (Docker: a file on a volume), else appended to backend/.env.
     masking_secret: str = ""
+    masking_secret_file: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

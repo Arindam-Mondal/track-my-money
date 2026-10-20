@@ -1,0 +1,9 @@
+# Only pyproject.toml, uv.lock, alembic/ and app/ go into the image.
+.env
+.env.*
+.venv/
+**/__pycache__/
+.pytest_cache/
+tests/
+training/
+scripts/
