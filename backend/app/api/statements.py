@@ -23,6 +23,7 @@ from app.categorising import jobs
 from app.categorising.categories import CATEGORIES, Direction, direction_of, is_valid
 from app.config import settings
 from app.db import get_session
+from app.jev import jev_key
 from app.masking import MASKING_VERSION, mask
 from app.models import Statement, Transaction
 from app.parsing import statement_parser
@@ -42,6 +43,7 @@ from app.schemas import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[Session, Depends(get_session)]
+JevKey = Annotated[str | None, Header(alias="X-TypeSafe-Key", description="The user's own Jev key, if any")]
 
 UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
     409: {"model": UploadError, "description": "This file was already imported"},
@@ -78,7 +80,7 @@ def to_out(statement: Statement, transaction_count: int, categorised_count: int 
 @router.get("/health")
 def health(session: SessionDep) -> Health:
     session.execute(text("select 1"))
-    return Health(database="ok", server_jev_key=bool(settings.typesafe_api_key.strip()))
+    return Health(database="ok", server_jev_key=jev_key() is not None)
 
 
 @router.post("/statements", status_code=201, responses=UPLOAD_ERRORS)
@@ -86,7 +88,7 @@ def upload_statement(
     session: SessionDep,
     file: Annotated[UploadFile, File(description="A bank statement PDF")],
     password: Annotated[str | None, Form(description="Password, if the PDF is locked")] = None,
-    typesafe_key: Annotated[str | None, Header(alias="X-TypeSafe-Key", description="The user's Jev key")] = None,
+    sent_key: JevKey = None,
 ) -> StatementOut:
     # A plain `def`: FastAPI runs it in a worker thread, as parsing and Jev calls block.
     limit = settings.max_upload_mb * 1024 * 1024
@@ -100,7 +102,7 @@ def upload_statement(
     if session.scalar(select(Statement.id).where(Statement.file_sha256 == sha256)) is not None:
         raise upload_error(409, "duplicate", "This statement was already imported.")
 
-    with jev_classifier(typesafe_key or settings.typesafe_api_key) as classify:
+    with jev_classifier(jev_key(sent_key)) as classify:
         try:
             parsed = statement_parser.parse(data, password, classify)
         except statement_parser.PasswordRequired:
@@ -196,7 +198,7 @@ def categorise_statement(
     background: BackgroundTasks,
     redo: bool = False,
     categoriser: jobs.Categoriser = "laya",
-    typesafe_key: Annotated[str | None, Header(alias="X-TypeSafe-Key", description="The user's Jev key")] = None,
+    sent_key: JevKey = None,
 ) -> dict[str, bool]:
     """Start categorising with Laya (local) or Jev (cloud, masked text only).
 
@@ -205,7 +207,7 @@ def categorise_statement(
     """
     if session.get(Statement, statement_id) is None:
         raise HTTPException(404, "Statement not found")
-    api_key = (typesafe_key or settings.typesafe_api_key).strip() or None
+    api_key = jev_key(sent_key)
     if categoriser == "jev" and not api_key:
         raise HTTPException(422, "Jev needs an API key: enter yours in the Jev API key field")
     if not jobs.claim(statement_id):

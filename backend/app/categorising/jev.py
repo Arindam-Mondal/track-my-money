@@ -9,10 +9,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 
-from typesafe_sdk import Content, RetryPolicy, TypeSafeClient, TypeSafeError
+from typesafe_sdk import Content, TypeSafeError
 
 from app.categorising.categories import is_valid
 from app.categorising.laya import DIRECTION_TEXT, CategoryAnswer, CategoryClassifier, TxInput, build_question
+from app.jev import jev_client
 
 # Upper bounds (exclusive) and labels; the exact amount stays on this machine.
 _RANGES: list[tuple[Decimal, str]] = [
@@ -41,7 +42,7 @@ def build_jev_state(tx: TxInput) -> Content:
 @contextmanager
 def jev_category_classifier(api_key: str) -> Iterator[CategoryClassifier]:
     """A classifier asking Jev with this key; its HTTP client is closed afterwards."""
-    client = TypeSafeClient(api_key=api_key.strip(), retry=RetryPolicy(max_retries=1), timeout=15.0)
+    client = jev_client(api_key)
 
     def classify(tx: TxInput) -> CategoryAnswer:
         result = client.system_one(build_jev_state(tx), {"category": build_question(tx.direction, with_descriptions=True)})

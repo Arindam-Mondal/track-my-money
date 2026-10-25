@@ -16,10 +16,11 @@ from typesafe_sdk import (
     Content,
     ContentValue,
     Image,
-    RetryPolicy,
     TypeSafeClient,
     TypeSafeError,
 )
+
+from app.jev import jev_client
 
 
 Role = Literal["date", "particulars", "debit", "credit", "amount", "drcr", "balance"]
@@ -30,10 +31,6 @@ MIN_CONFIDENCE = 0.6  # Below this, Jev is unsure and we ignore the column. Tune
 
 # A header classifier: (header cells, sample rows, header-cell images or None) -> one label per column.
 Classifier = Callable[[list[str], list[list[str]], list[bytes] | None], tuple[Label | None, ...]]
-
-# Fail over to the keyword rules quickly when the API is down: 2 attempts of at most 15 s each.
-JEV_RETRY = RetryPolicy(max_retries=1)
-JEV_TIMEOUT = 15.0
 
 ROLE_CRITERIA: dict[str, str] = {
     "date": "The date the transaction happened or was posted. Not the value date.",
@@ -157,7 +154,7 @@ def jev_classifier(api_key: str | None) -> Iterator[Classifier | None]:
         yield None
         return
     try:
-        client = TypeSafeClient(api_key=api_key.strip(), retry=JEV_RETRY, timeout=JEV_TIMEOUT)
+        client = jev_client(api_key)
     except TypeSafeError as error:
         message = str(error)
 

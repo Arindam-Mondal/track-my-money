@@ -11,7 +11,7 @@ and summary rows (opening/closing balance, totals) become statement metadata.
 A PDF is read from a path or from bytes (an upload). A locked one raises PasswordRequired
 or WrongPassword; the CLI then asks for the password.
 
-Usage (from backend/; TYPESAFE_API_KEY is read from backend/.env):
+Usage (from backend/; JEV_API_KEY is read from backend/.env):
     uv run python -m app.parsing.statement_parser path/to/statement.pdf [--json] [--rules-only]
 
     --rules-only (or HEADER_RULES_ONLY=1) skips Jev and uses the keyword rules only.
@@ -37,6 +37,7 @@ from pdfminer.pdfdocument import PDFPasswordIncorrect
 from pdfplumber.utils.exceptions import PdfminerException
 from typesafe_sdk import TypeSafeError
 
+from app.jev import jev_key
 from app.parsing.header_classifier import Classifier, Label, Role, header_png, jev_classifier
 
 logger = logging.getLogger(__name__)
@@ -517,14 +518,12 @@ def to_json(statement):
 
 
 def main():
-    from app.config import settings  # the CLI reads backend/.env; the parser itself doesn't
-
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if not args:
         sys.exit(__doc__)
     path = Path(args[0])
     rules_only = "--rules-only" in sys.argv or os.environ.get("HEADER_RULES_ONLY") == "1"
-    with jev_classifier(None if rules_only else settings.typesafe_api_key) as classify:
+    with jev_classifier(None if rules_only else jev_key()) as classify:
         try:
             statement = parse(path, classify=classify)
         except PasswordRequired:

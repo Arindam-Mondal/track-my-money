@@ -93,7 +93,7 @@ def laya(sessions: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch) -> Fa
 @pytest.fixture
 def client(sessions: sessionmaker[Session], laya: FakeLaya, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """An API client on an emptied test database, with no server-side Jev key and a fake Laya."""
-    monkeypatch.setattr(settings, "typesafe_api_key", "")
+    monkeypatch.setattr(settings, "jev_api_key", "")
     monkeypatch.setattr(settings, "masking_secret", "test-masking-secret")  # never the real key
 
     def test_session() -> Iterator[Session]:

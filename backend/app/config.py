@@ -8,7 +8,13 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://trackmymoney:trackmymoney@127.0.0.1:5433/trackmymoney"
     test_database_url: str = "postgresql+psycopg://trackmymoney:trackmymoney@127.0.0.1:5433/trackmymoney_test"
-    typesafe_api_key: str = ""  # optional server-side Jev key; the UI can send its own
+    # Jev: the System One model that reads column headers and categorises transactions. The key is
+    # the server's own, used when the browser sends none. The endpoint is TypeSafe's cloud unless the
+    # last two are set, e.g. Command Code's Provider API: https://api.commandcode.ai/provider and
+    # typesafe/jev.
+    jev_api_key: str = ""
+    jev_base_url: str = ""
+    jev_model: str = ""
     cors_origins: str = ""  # comma-separated, for a frontend hosted on another origin
     max_upload_mb: int = 20
 

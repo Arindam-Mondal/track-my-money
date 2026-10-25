@@ -198,7 +198,7 @@ To run the app, you need only Docker. For development, you also need uv, Node.js
    cp backend/.env.example backend/.env
    ```
    ```ini
-   TYPESAFE_API_KEY=your-key
+   JEV_API_KEY=your-key
    ```
 4. Build and start the app:
    ```bash
@@ -272,7 +272,7 @@ database in Docker. If the Docker app is running, stop its `backend` and `fronte
    ```
 3. Optional: add your Jev API key to `backend/.env`:
    ```ini
-   TYPESAFE_API_KEY=your-key
+   JEV_API_KEY=your-key
    ```
 4. Create the database tables:
    ```bash
@@ -452,7 +452,9 @@ The backend reads these settings from `backend/.env`.
 |---|---|---|
 | `DATABASE_URL` | `postgresql+psycopg://trackmymoney:trackmymoney@127.0.0.1:5433/trackmymoney` | The application database. |
 | `TEST_DATABASE_URL` | `…/trackmymoney_test` | The database for the API tests. |
-| `TYPESAFE_API_KEY` | *(empty)* | The server Jev key. The app uses it when the browser sends no key. |
+| `JEV_API_KEY` | *(empty)* | The server Jev key. The app uses it when the browser sends no key. |
+| `JEV_BASE_URL` | *(empty)* | Where Jev is reached. Empty is TypeSafe's cloud. |
+| `JEV_MODEL` | *(empty)* | The model to ask at that endpoint. Set it with `JEV_BASE_URL` to run Jev elsewhere, for example on Command Code's Provider API (`https://api.commandcode.ai/provider` and `typesafe/jev`). |
 | `CORS_ORIGINS` | *(empty)* | Comma-separated origins that can call the API. Use it when the frontend is on a different host. |
 | `LAYA_BASE_URL` | `http://127.0.0.1:8100` | The Laya server. |
 | `LAYA_MODEL` | *(empty)* | The Laya checkpoint to use, for example `laya-finance`. |

@@ -1,7 +1,7 @@
 # track-my-money in Docker. Start everything with: docker compose up -d   -> http://127.0.0.1:8080
 #   frontend - the React app (nginx) on 127.0.0.1:8080; forwards /api to the backend
 #   backend  - FastAPI; runs the database migrations on start. Reads backend/.env if it exists
-#              (TYPESAFE_API_KEY, MASKING_SECRET, LAYA_MODEL).
+#              (JEV_API_KEY, MASKING_SECRET, LAYA_MODEL).
 #   db       - Postgres on 127.0.0.1:5433 (a local Postgres may already be using 5432)
 #   laya     - optional (--profile laya): our fine-tuned Laya model, Jev-compatible API on 127.0.0.1:8100.
 #              Needs the checkpoint in models/laya-finance first: see backend/training/README.md.

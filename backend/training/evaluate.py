@@ -6,7 +6,7 @@ Candidates:
   tfidf          a tiny baseline: character n-gram TF-IDF + logistic regression, trained in
                  seconds on the same synthetic data. Shows whether fine-tuning a 0.4B model pays off.
   jev-masked     Jev (cloud) on the MASKED narrations only. Opt-in (add it to --models): it sends
-                 the masked text of your labelled transactions to TypeSafe. Needs TYPESAFE_API_KEY.
+                 the masked text of your labelled transactions to TypeSafe. Needs JEV_API_KEY.
 
 Test sets:
   handwritten    18 typical narrations with known categories
@@ -35,6 +35,7 @@ from app.categorising.jev import jev_category_classifier  # noqa: E402
 from app.categorising.laya import TxInput, laya_classifier  # noqa: E402
 from app.masking import mask  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.jev import jev_key  # noqa: E402
 from app.models import Transaction  # noqa: E402
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -136,10 +137,11 @@ def main() -> None:
             if name == "tfidf":
                 run(name, predictors[name], cases)
             elif name == "jev-masked":
-                if not settings.typesafe_api_key:
-                    print(f"  {name:<14} skipped: set TYPESAFE_API_KEY (e.g. uv run --env-file ../playground/.env ...)")
+                api_key = jev_key()
+                if api_key is None:
+                    print(f"  {name:<14} skipped: set JEV_API_KEY (e.g. uv run --env-file ../playground/.env ...)")
                     continue
-                with jev_category_classifier(settings.typesafe_api_key) as classify:
+                with jev_category_classifier(api_key) as classify:
                     run(name, lambda tx, c=classify: c(tx).category, cases)
             else:
                 with laya_classifier(model=name) as classify:
